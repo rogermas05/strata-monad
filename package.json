@@ -1,0 +1,71 @@
+{
+  "name": "strata",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -k -n api,web 'npm run dev -w @strata/api' 'npm run dev -w @strata/web'",
+    "build": "npm run build -w @strata/web",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "contracts:build": "forge build --root contracts",
+    "contracts:test": "forge test --root contracts -vv",
+    "local:chain": "anvil --chain-id 31337 --host 127.0.0.1 --port 8546 --block-time 1 --silent",
+    "local:seed": "tsx scripts/seed.ts",
+    "check": "npm run typecheck && npm test && npm run contracts:test && npm run build",
+    "local:fork": "anvil --fork-url https://testnet-rpc.monad.xyz --chain-id 31337 --host 127.0.0.1 --port 8546 --block-time 1 --silent",
+    "test:e2e": "playwright test",
+    "pyth:check": "tsx scripts/pyth-check.ts",
+    "pyth:rehearse": "tsx scripts/rehearse-pyth-settlement.ts",
+    "pyth:up": "tsx scripts/pyth-local.ts",
+    "deployment:check": "tsx scripts/check-deployment.ts",
+    "service:check": "tsx scripts/check-service-boundary.ts",
+    "deployment:package": "tsx scripts/deployment-package.ts",
+    "deployment:rehearse": "tsx scripts/rehearse-deployment.ts",
+    "maker:bootstrap": "tsx scripts/maker-bootstrap-cli.ts",
+    "format": "prettier --write apps packages scripts tests *.json *.ts",
+    "format:check": "prettier --check apps packages scripts tests *.json *.ts",
+    "setup": "tsx scripts/setup.ts",
+    "local:up": "tsx scripts/local.ts",
+    "local:restore": "tsx scripts/restore-local.ts",
+    "signer:rehearse": "tsx scripts/rehearse-signer.ts"
+  },
+  "dependencies": {
+    "@fastify/cors": "^11.3.1",
+    "@fastify/websocket": "^11.3.4",
+    "@fontsource-variable/inter": "^5.3.0",
+    "@fontsource/ibm-plex-mono": "^5.3.0",
+    "@fontsource/michroma": "^5.3.0",
+    "@openzeppelin/contracts": "^5.6.1",
+    "@tanstack/react-query": "^5.104.2",
+    "dotenv": "^18.0.7",
+    "fastify": "^5.12.5",
+    "lightweight-charts": "^5.2.1",
+    "lucide-react": "^1.55.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "react-router-dom": "^7.18.4",
+    "recharts": "^3.10.1",
+    "viem": "^2.57.4",
+    "zod": "^4.6.6"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.64.0",
+    "@types/node": "^26.6.5",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.2",
+    "concurrently": "^10.0.6",
+    "prettier": "^3.9.10",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.4",
+    "vitest": "^4.1.11"
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  }
+}
