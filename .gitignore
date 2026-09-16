@@ -1,0 +1,21 @@
+node_modules/
+dist/
+contracts/out/
+contracts/cache/
+contracts/lib/
+contracts/broadcast/
+.env
+.env.*
+!.env.example
+.runtime/
+coverage/
+playwright-report/
+test-results/
+*.log
+.vercel
+.env*
+!.env.example
+
+# Supabase CLI local connection/cache state
+supabase/.temp/
+supabase/.branches/
