@@ -1,0 +1,17 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "buildCommand": "npm run build",
+  "outputDirectory": "apps/web/dist",
+  "installCommand": "npm ci",
+  "functions": {
+    "api/index.ts": {
+      "maxDuration": 300,
+      "includeFiles": "packages/core/src/generated/**"
+    }
+  },
+  "rewrites": [
+    { "source": "/api/:path*", "destination": "/api?route=:path*" },
+    { "source": "/((?!api/|assets/|.*\\.).*)", "destination": "/index.html" }
+  ]
+}

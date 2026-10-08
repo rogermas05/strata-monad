@@ -1,0 +1,10 @@
+.env*
+.runtime
+.git
+node_modules
+contracts
+tests
+docs
+scripts/rehearse*
+test-results
+playwright-report
