@@ -101,3 +101,54 @@ it("keeper signing is restricted to listed references, proof limits and a bounde
     ),
   ).rejects.toThrow("fee");
 });
+it("maker may operate the house vault only on listed series and publish reward roots", async () => {
+  const house = {
+    vault: addr(20),
+    strata: addr(21),
+    staking: addr(22),
+    distributor: addr(23),
+    operator: m.maker,
+    launchTime: 2,
+    genesisStart: 1,
+    deployedBlock: "1",
+  };
+  const allow = workerAuthorizer({ ...m, house } as Manifest, "maker");
+  const vault = parseAbi([
+    "function write(uint256,uint256)",
+    "function depositToVenue(address,uint256)",
+    "function updateQuotes(address,uint32[],uint96[],uint32[],uint96[],uint40[])",
+    "function roll(uint256[])",
+  ]);
+  const distributor = parseAbi(["function publish(bytes32,uint256)"]);
+  await allow(intent(house.vault, vault, "write", [1n, 1n]));
+  await allow(intent(house.vault, vault, "depositToVenue", [m.usdc, 1n]));
+  await allow(
+    intent(house.vault, vault, "updateQuotes", [addr(8), [], [], [], [], []]),
+  );
+  await allow(intent(house.vault, vault, "roll", [[1n]]));
+  await allow(intent(house.distributor, distributor, "publish", [feed, 1n]));
+  await expect(
+    allow(intent(house.vault, vault, "write", [999n, 1n])),
+  ).rejects.toThrow("series");
+  await expect(
+    allow(intent(house.vault, vault, "depositToVenue", [addr(99), 1n])),
+  ).rejects.toThrow("token");
+  await expect(
+    allow(
+      intent(house.vault, vault, "updateQuotes", [
+        addr(99),
+        [],
+        [],
+        [],
+        [],
+        [],
+      ]),
+    ),
+  ).rejects.toThrow("book");
+  await expect(
+    allow(intent(house.vault, vault, "roll", [[999n]])),
+  ).rejects.toThrow("series");
+  await expect(
+    workerAuthorizer(m, "maker")(intent(house.vault, vault, "write", [1n, 1n])),
+  ).rejects.toThrow("outside");
+});

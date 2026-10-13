@@ -11,6 +11,10 @@ import { OptionsEngine as engine } from "../../../packages/core/src/generated/co
 import { OptionToken as token } from "../../../packages/core/src/generated/contracts.ts";
 import { WrappedMON as wrapped } from "../../../packages/core/src/generated/contracts.ts";
 import { DemoUSDC as usdc } from "../../../packages/core/src/generated/contracts.ts";
+import {
+  HouseVault as vault,
+  StrataDistributor as distributor,
+} from "../../../packages/core/src/generated/contracts.ts";
 import { parseAbi } from "viem";
 
 const margin = parseAbi([
@@ -51,6 +55,18 @@ export function workerAuthorizer(
       add(s.token, token as Abi, ["approve"]);
       add(s.market, book, ["batchUpdate", "batchCancelOrdersNoRevert"]);
     }
+    if (manifest.house) {
+      add(manifest.house.vault, vault as Abi, [
+        "write",
+        "closeWrite",
+        "depositToVenue",
+        "withdrawFromVenue",
+        "updateQuotes",
+        "cancelQuotes",
+        "roll",
+      ]);
+      add(manifest.house.distributor, distributor as Abi, ["publish"]);
+    }
   } else {
     if (verifier) add(verifier, oracle, ["updatePriceFeeds"]);
     for (const a of manifestAssets(manifest))
@@ -68,7 +84,48 @@ export function workerAuthorizer(
     const value = intent.value ?? 0n;
     if (value && decoded.functionName !== "deposit" && role === "maker")
       throw new Error("Maker call cannot transfer native value");
-    if (role === "maker") {
+    const listed = (id: unknown) =>
+      manifest.series.some((s) => BigInt(s.id) === id);
+    const admittedToken = (t: unknown) =>
+      [manifest.usdc, ...manifest.series.map((s) => s.token)].some((a) =>
+        same(t, a),
+      );
+    if (
+      role === "maker" &&
+      manifest.house &&
+      same(intent.to, manifest.house.vault)
+    ) {
+      // The vault itself enforces operator scope; this keeps the key on the listed shelf.
+      if (value) throw new Error("Vault calls cannot transfer native value");
+      if (
+        ["write", "closeWrite"].includes(decoded.functionName) &&
+        !listed(args[0])
+      )
+        throw new Error("Vault series is outside the deployment");
+      if (
+        ["depositToVenue", "withdrawFromVenue"].includes(
+          decoded.functionName,
+        ) &&
+        !admittedToken(args[0])
+      )
+        throw new Error("Vault venue token is outside the deployment");
+      if (
+        ["updateQuotes", "cancelQuotes"].includes(decoded.functionName) &&
+        !manifest.series.some((s) => same(args[0], s.market))
+      )
+        throw new Error("Vault book is outside the deployment");
+      if (
+        decoded.functionName === "roll" &&
+        !(args[0] as readonly bigint[]).every(listed)
+      )
+        throw new Error("Vault epoch series is outside the deployment");
+    } else if (
+      role === "maker" &&
+      manifest.house &&
+      same(intent.to, manifest.house.distributor)
+    ) {
+      if (value) throw new Error("Reward publication cannot transfer value");
+    } else if (role === "maker") {
       if (
         decoded.functionName === "approve" &&
         ![manifest.engine, manifest.kuruMargin].some(

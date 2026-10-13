@@ -24,6 +24,11 @@ import {
   manifestAssets,
 } from "../../../packages/core/src/manifest-assets.ts";
 import type { Snapshot } from "../../../packages/core/src/index.ts";
+import {
+  houseSteps,
+  isHouseAction,
+} from "../../../packages/core/src/house-actions.ts";
+import { api } from "./api.ts";
 import type { Action } from "./context.ts";
 import {
   parseRecovery,
@@ -282,7 +287,25 @@ export async function signAction(
       if (market && BigInt(market.expiry) <= block.timestamp)
         throw new Error("Expired market does not accept new orders");
     }
-    if (action.action === "submit-oracle-proof") {
+    if (isHouseAction(action.action)) {
+      const claim =
+        action.action === "rewards-claim"
+          ? ((await api.rewards(account)).claim ?? undefined)
+          : undefined;
+      for (const step of houseSteps(
+        m,
+        {
+          action: action.action,
+          amount: action.amount,
+          stake: action.stake,
+          claim,
+        },
+        account,
+      ))
+        if (step.kind === "approve")
+          await approve(step.token, step.spender, step.amount);
+        else await send(step.address, step.abi, step.functionName, step.args);
+    } else if (action.action === "submit-oracle-proof") {
       if (!action.proof) throw new Error("Missing reviewed oracle proof");
       const proof = await recheckOracleProof(
         publicClient,

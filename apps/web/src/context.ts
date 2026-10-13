@@ -13,6 +13,9 @@ export type Action = {
   quantity?: string;
   price?: string;
   isBuy?: boolean;
+  /** USDC, sHOUSE or STRATA amount for house actions. */
+  amount?: string;
+  stake?: boolean;
   orderId?: string;
   packet?: RecoveryPacket;
   proof?: OracleProof;

@@ -75,3 +75,12 @@ Fixed quote churn from exact BTC notional-cap sizing: public target uses90% of t
 Latest local checks:122 unit/service tests and4 selector browser regressions (including20-asset rendering fixture), TypeScript/build passed. Solidity unchanged. All18 new adapters have exact Sourcify matches. All39 currently open-session books have funded bids and asks; four QQQ/TSLA books remain paused outside the regular US session. Final public checks are recorded in the asset-expansion readiness artifact. Historical earlier25-book reports remain evidence of prior stages, not current shelf counts.
 
 Final new-asset verification: actual1-contract SOL bull-spread fill delivered exactly1 claim, hash `0x4793f87f2f6943a68d75ed667397cd4e7e3390ca9987b8631c486b3bd2821fd8`; public POST receipt registration HTTP200/included at block70634445. Treat it as a project verification trade. Supabase cron restored active at5 seconds. Never rerun `verify-asset-depth.ts` after its result file exists. Final read-only readiness samples are in `.runtime/testnet/asset-expansion/readiness.json`.
+
+## House vault, points and STRATA (local only)
+
+User asked for the GTM flywheel to be built: a pooled house vault, points, STRATA, staking and fee sharing. It is implemented and tested on the local fork only. **Nothing is deployed to Monad testnet or the hosted stack; ask before deploying.** See [house vault](house-vault.md).
+
+- Contracts: `HouseVault.sol` (USDC-only, weekly epochs, cash-only share price, operator = maker key, 10% performance fee to staking), `Strata.sol` (`StrataToken` stake-only until enabled, `StrataStaking`, `StrataDistributor` cumulative Merkle claims). Engine, router and adapters are unchanged.
+- Core: `points.ts`, `merkle.ts`, `house-epoch.ts`, `house-actions.ts`. API: `house.ts` (snapshot extension, account/rewards views, root publishing), `house-worker.ts` (launch, roll, quoting), routes `/api/house/:address`, `/api/rewards/:address`, local `/api/demo/house-cycle`. The worker policy admits vault/distributor calls for the maker role. Web: `House.tsx` (`/house`, `/rewards`).
+- `seed.ts` now honors `MANIFEST_PATH`; `local:up` runs `house:deploy` on fresh Kuru forks; Playwright honors `E2E_BASE_URL`.
+- Verification ran on an isolated stack (Anvil 8548, API 3011, web 5183, manifest `.runtime/house-it/manifest.json`); the default `.runtime/manifest.json` was not modified.

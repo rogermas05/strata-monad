@@ -13,6 +13,10 @@ const sources: Record<string, string> = {
   DemoOrderBook: "Venues.sol",
   StrategyRouter: "Venues.sol",
   KuruExactAdapter: "Venues.sol",
+  HouseVault: "HouseVault.sol",
+  StrataToken: "Strata.sol",
+  StrataStaking: "Strata.sol",
+  StrataDistributor: "Strata.sol",
 };
 export function artifact(name: string): { abi: Abi; bytecode: Hex } {
   const a = JSON.parse(

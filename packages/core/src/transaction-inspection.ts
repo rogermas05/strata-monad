@@ -36,6 +36,14 @@ export async function inspectTransaction(
     manifest.wmon,
     manifest.kuruMargin,
     ...manifest.series.flatMap((s) => [s.token, s.market, s.venue]),
+    ...(manifest.house
+      ? [
+          manifest.house.vault,
+          manifest.house.strata,
+          manifest.house.staking,
+          manifest.house.distributor,
+        ]
+      : []),
   ]
     .filter(Boolean)
     .map((a) => a!.toLowerCase());

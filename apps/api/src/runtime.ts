@@ -327,6 +327,16 @@ function seriesForCall(
   args: unknown[],
 ): SeriesConfig[] {
   const target = address.toLowerCase();
+  if (manifest.house && target === manifest.house.vault.toLowerCase()) {
+    // Vault operator calls name their series or book in the first argument.
+    const first = String(args[0]).toLowerCase();
+    return manifest.series.filter((s) =>
+      functionName === "updateQuotes"
+        ? s.market.toLowerCase() === first
+        : functionName === "write" &&
+          BigInt(s.id) === BigInt(args[0] as bigint),
+    );
+  }
   const byVenue = manifest.series.filter(
     (s) =>
       s.market.toLowerCase() === target || s.venue.toLowerCase() === target,
@@ -360,6 +370,7 @@ export async function send(
       "addSellOrder",
       "place",
       "batchUpdate",
+      "updateQuotes",
     ].includes(functionName)
   ) {
     let block = await client.getBlock();
@@ -505,6 +516,10 @@ export function readiness() {
   });
 }
 let allTrades: TradeRecord[] = [];
+/** Every indexed fill since deployment (snapshots carry only the latest 200). */
+export function tradeHistory(): readonly TradeRecord[] {
+  return allTrades;
+}
 const makerStatePath = `${runtimeDirectory}/maker-state-${manifest.engine.toLowerCase()}.json`;
 export let makerEnabled = true;
 if (existsSync(makerStatePath)) {
@@ -626,8 +641,12 @@ const addresses = [
   manifest.oracle,
   ...adapters,
   ...manifest.series.map((s) => s.market),
+  ...(manifest.house ? [manifest.house.vault] : []),
 ];
 const contractAbis = new Map<string, Abi>([
+  ...(manifest.house
+    ? [[manifest.house.vault.toLowerCase(), abi("HouseVault")] as [string, Abi]]
+    : []),
   [manifest.engine.toLowerCase(), engineAbi],
   [manifest.oracle.toLowerCase(), oracleAbi],
   ...adapters.map((a) => [a, oracleAbi] as [string, Abi]),
@@ -659,60 +678,83 @@ async function indexTo(latest: bigint) {
       cursor = undefined;
     }
   }
+  // A vault added to an existing deployment needs its earlier logs once.
+  if (manifest.house && cursor && !houseBackfilled) {
+    const end = BigInt(cursor.block);
+    let start = BigInt(manifest.house.deployedBlock);
+    while (start <= end) {
+      const stop = start + 99n < end ? start + 99n : end;
+      await storeLogs([manifest.house.vault], start, stop);
+      start = stop + 1n;
+    }
+    houseBackfilled = true;
+  }
   let from = BigInt(cursor ? cursor.block + 1 : manifest.deployedBlock);
   while (from <= latest) {
     const range = manifest.chainId === 10143 ? 99n : 199n;
     const to = from + range < latest ? from + range : latest;
-    const logs = await client.getLogs({
-      address: addresses,
-      fromBlock: from,
-      toBlock: to,
-    });
-    const times = new Map<string, number>();
-    for (const number of new Set(logs.map((l) => l.blockNumber!.toString()))) {
-      const b = await client.getBlock({ blockNumber: BigInt(number) });
-      times.set(number, Number(b.timestamp));
-    }
-    const insert = db.prepare(
-      "INSERT OR IGNORE INTO events VALUES(?,?,?,?,?,?,?,?)",
-    );
-    db.exec("BEGIN");
-    try {
-      for (const l of logs) {
-        let decoded;
-        try {
-          decoded = decodeEventLog({
-            abi: contractAbis.get(l.address.toLowerCase())!,
-            data: l.data,
-            topics: l.topics,
-          });
-        } catch {
-          continue;
-        }
-        insert.run(
-          `${manifest.chainId}:${l.blockHash}:${l.transactionHash}:${l.logIndex}`,
-          Number(l.blockNumber),
-          l.blockHash!,
-          l.transactionHash!,
-          l.address,
-          decoded.eventName ?? "Unknown",
-          json(decoded.args),
-          times.get(l.blockNumber!.toString())!,
-        );
+    await storeLogs(addresses, from, to, true);
+    from = to + 1n;
+  }
+}
+let houseBackfilled = false;
+async function storeLogs(
+  sources: Address[],
+  from: bigint,
+  to: bigint,
+  advanceCursor = false,
+) {
+  const logs = await client.getLogs({
+    address: sources,
+    fromBlock: from,
+    toBlock: to,
+  });
+  const times = new Map<string, number>();
+  for (const number of new Set(logs.map((l) => l.blockNumber!.toString()))) {
+    const b = await client.getBlock({ blockNumber: BigInt(number) });
+    times.set(number, Number(b.timestamp));
+  }
+  const insert = db.prepare(
+    "INSERT OR IGNORE INTO events VALUES(?,?,?,?,?,?,?,?)",
+  );
+  db.exec("BEGIN");
+  try {
+    for (const l of logs) {
+      let decoded;
+      try {
+        decoded = decodeEventLog({
+          abi: contractAbis.get(l.address.toLowerCase())!,
+          data: l.data,
+          topics: l.topics,
+        });
+      } catch {
+        continue;
       }
+      insert.run(
+        `${manifest.chainId}:${l.blockHash}:${l.transactionHash}:${l.logIndex}`,
+        Number(l.blockNumber),
+        l.blockHash!,
+        l.transactionHash!,
+        l.address,
+        decoded.eventName ?? "Unknown",
+        json(decoded.args),
+        times.get(l.blockNumber!.toString())!,
+      );
+    }
+    if (advanceCursor) {
       const block = await client.getBlock({ blockNumber: to });
       db.prepare("INSERT OR REPLACE INTO cursor VALUES(1,?,?)").run(
         Number(to),
         block.hash!,
       );
-      db.exec("COMMIT");
-    } catch (error) {
-      db.exec("ROLLBACK");
-      throw error;
     }
-    from = to + 1n;
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
   }
 }
+
 function depth(orders: BookOrder[], isBuy: boolean): DepthLevel[] {
   const levels = new Map<number, DepthLevel>();
   for (const o of orders.filter((o) => o.isBuy === isBuy && o.remaining > 0)) {
@@ -735,6 +777,7 @@ export async function readMakerInventory(
   market: { id: number; token: Address },
   orders: BookOrder[],
   blockNumber?: bigint,
+  owner: Address = manifest.maker,
 ) {
   const at = blockNumber ?? (await client.getBlockNumber({ cacheTime: 0 }));
   const [walletClaims, venueClaims, writer] = (await Promise.all([
@@ -742,7 +785,7 @@ export async function readMakerInventory(
       address: market.token,
       abi: tokenAbi,
       functionName: "balanceOf",
-      args: [manifest.maker],
+      args: [owner],
       blockNumber: at,
     }),
     manifest.kuruMargin
@@ -750,7 +793,7 @@ export async function readMakerInventory(
           address: manifest.kuruMargin,
           abi: marginAbi,
           functionName: "getBalance",
-          args: [manifest.maker, market.token],
+          args: [owner, market.token],
           blockNumber: at,
         })
       : Promise.resolve(0n),
@@ -758,15 +801,14 @@ export async function readMakerInventory(
       address: manifest.engine,
       abi: engineAbi,
       functionName: "writers",
-      args: [BigInt(market.id), manifest.maker],
+      args: [BigInt(market.id), owner],
       blockNumber: at,
     }),
   ])) as [bigint, bigint, readonly [bigint, bigint]];
   const restingClaims = orders
     .filter(
       (order) =>
-        !order.isBuy &&
-        order.owner.toLowerCase() === manifest.maker.toLowerCase(),
+        !order.isBuy && order.owner.toLowerCase() === owner.toLowerCase(),
     )
     .reduce(
       (sum, order) =>
@@ -781,6 +823,27 @@ export async function readMakerInventory(
     collateral: writer[1],
     heldClaims: walletClaims + venueClaims + restingClaims,
   };
+}
+/** Indexed events emitted by one contract, in chain order. */
+export function indexedEvents(address: Address) {
+  return (
+    db
+      .prepare("SELECT * FROM events WHERE lower(address)=lower(?)")
+      .all(address) as unknown as StoredEvent[]
+  ).sort(
+    (a, b) =>
+      a.block - b.block ||
+      Number(a.id.split(":").at(-1)) - Number(b.id.split(":").at(-1)),
+  );
+}
+type SnapshotExtension = (
+  snapshot: Snapshot,
+  blockNumber: bigint,
+) => Promise<Partial<Snapshot>>;
+const snapshotExtensions: SnapshotExtension[] = [];
+/** Adds derived state (e.g. the house vault) to every snapshot built after this call. */
+export function extendSnapshot(extension: SnapshotExtension) {
+  snapshotExtensions.push(extension);
 }
 const OBSERVED_PRICES = 720;
 const observed = new Map<string, Snapshot["prices"]>();
@@ -812,6 +875,7 @@ export const refresh: () => Promise<Snapshot> = coalesceFresh(async () => {
   }
 });
 async function buildSnapshot(): Promise<Snapshot> {
+  const previousSnapshot = snapshot;
   const block = await client.getBlock();
   if (block.hash !== lastTipHash) {
     lastTipHash = block.hash!;
@@ -1190,6 +1254,12 @@ async function buildSnapshot(): Promise<Snapshot> {
       status: "healthy",
     },
   };
+  // Publish only the complete snapshot; an extension failure keeps the last one.
+  let next = snapshot;
+  snapshot = previousSnapshot;
+  for (const extension of snapshotExtensions)
+    next = { ...next, ...(await extension(next, block.number)) };
+  snapshot = next;
   return snapshot;
 }
 let receiptOffset = 0;
