@@ -118,6 +118,30 @@ export default async function handler(request: any, response: any) {
             : [];
           await runMakerCycle({ marketIds: chosen });
           await saveCloudState("maker-cursor", cursor + 1);
+          if (runtime.manifest.house) {
+            // One vault book per pass, after any launch or roll. A vault failure
+            // must not stop the project maker's pass from being published.
+            const { runHouseCycle } =
+              await import("../apps/api/src/house-worker.ts");
+            const house = (await runtime.refresh()).house;
+            const live = (house?.series ?? []).filter((id) =>
+              snap.markets.some((m) => m.id === id && m.active && m.healthy),
+            );
+            const houseCursor =
+              (await loadCloudState<number>("house-cursor")) ?? 0;
+            try {
+              await runHouseCycle({
+                marketIds: live.length
+                  ? [live[houseCursor % live.length]]
+                  : undefined,
+              });
+            } catch (error) {
+              runtime.recordWorkerError(
+                `House: ${error instanceof Error ? error.message : String(error)}`,
+              );
+            }
+            await saveCloudState("house-cursor", houseCursor + 1);
+          }
           // Funding a new book can take most of the immutable price window.
           // Refresh signed prices again before publishing the completed pass.
           await runPythPass();
