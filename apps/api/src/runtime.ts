@@ -232,6 +232,7 @@ export async function reloadCloudReadModel() {
     db.exec("ROLLBACK");
     throw error;
   }
+  cloudCharts = state.charts ?? {};
   for (const [key, prices] of Object.entries(state.charts ?? {}))
     seedObservedPrices(key, prices);
 }
@@ -246,14 +247,18 @@ export async function persistCloudReadModel() {
     events: rows("events"),
     cursor: rows("cursor"),
     transactions: rows("transactions"),
-    charts: Object.fromEntries(
-      Object.entries(current()?.underlyings ?? {}).map(([key, value]) => [
-        key,
-        value.prices,
-      ]),
-    ),
+    // Before the first snapshot (e.g. mid catch-up), keep the stored charts.
+    charts: current()
+      ? Object.fromEntries(
+          Object.entries(current()!.underlyings).map(([key, value]) => [
+            key,
+            value.prices,
+          ]),
+        )
+      : cloudCharts,
   });
 }
+let cloudCharts: ReadModelState["charts"] = {};
 const signers = new Map<string, ManagedSigner>();
 async function workerSigner(account: Address) {
   if (!publicWorkers) throw new Error("Public worker signing is disabled");
@@ -690,13 +695,23 @@ async function indexTo(latest: bigint) {
     houseBackfilled = true;
   }
   let from = BigInt(cursor ? cursor.block + 1 : manifest.deployedBlock);
+  let ranges = 0;
   while (from <= latest) {
     const range = manifest.chainId === 10143 ? 99n : 199n;
     const to = from + range < latest ? from + range : latest;
     await storeLogs(addresses, from, to, true);
     from = to + 1n;
+    // A long catch-up can outlast one serverless pass; save progress as it goes.
+    if (
+      ++ranges % CATCH_UP_SAVE_RANGES === 0 &&
+      cloudEnabled &&
+      hasWorkerLease()
+    )
+      await persistCloudReadModel();
   }
 }
+/** Index ranges (100 blocks each on testnet) between catch-up saves. */
+const CATCH_UP_SAVE_RANGES = 100;
 let houseBackfilled = false;
 async function storeLogs(
   sources: Address[],

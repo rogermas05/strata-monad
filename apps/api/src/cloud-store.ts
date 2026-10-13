@@ -34,8 +34,17 @@ export async function cloudRequest<T>(
   return (text ? JSON.parse(text) : null) as T;
 }
 export async function claimWorker(owner: string) {
-  // A retiring invocation cannot inherit a newer invocation's lease in the same process.
-  if (leaseOwner) return false;
+  // A retiring invocation cannot inherit a newer invocation's lease in the same
+  // process. A killed invocation (e.g. at the function time limit) never runs its
+  // release, so its owner is only respected while its database lease is alive.
+  if (leaseOwner) {
+    // Read only: renewing here would keep a hung owner's lease alive forever.
+    const rows = await cloudRequest<{ expires_at: string }[]>(
+      `strata_worker_leases?id=eq.${workerLease}&owner=eq.${encodeURIComponent(leaseOwner)}&select=expires_at`,
+    );
+    if (rows[0] && Date.parse(rows[0].expires_at) > Date.now()) return false;
+    leaseOwner = undefined;
+  }
   const claimed = await cloudRequest<boolean>(
     "rpc/strata_claim_worker",
     "POST",

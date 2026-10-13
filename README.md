@@ -100,7 +100,7 @@ The liquidity console reports net option delta and vega; these exclude collatera
 
 ## House vault, points and STRATA
 
-**House** lets anyone deposit dUSDC into a pooled, fully funded writer that the maker key operates. The vault writes puts and spreads on every cash-settled market, quotes them on Kuru and rolls weekly. Every position settles to cash before each roll, so share prices need no model valuation. Deposits open in a genesis window before launch. **Rewards** converts points from genesis deposits, vault deposits and losses paid to the house into STRATA. Staked STRATA earns the vault's 10% performance fee. This is local-fork only; `npm run local:up` deploys it on a fresh fork, and `npm run house:deploy` adds it to an existing local deployment. See [house vault](docs/house-vault.md) for the contracts, trust model, point rules and endpoints.
+**House** lets anyone deposit dUSDC into a pooled, fully funded writer that the maker key operates. The vault writes puts and spreads on every cash-settled market, quotes them on Kuru and rolls weekly. Every position settles to cash before each roll, so share prices need no model valuation. Deposits open in a genesis window before launch. **Rewards** converts points from genesis deposits, vault deposits and losses paid to the house into STRATA. Staked STRATA earns the vault's 10% performance fee. It is live on Monad testnet (see [testnet demo](docs/testnet-demo.md)). `npm run local:up` deploys it on a fresh fork, and `npm run house:deploy` adds it to an existing local deployment. See [house vault](docs/house-vault.md) for the contracts, trust model, point rules and endpoints.
 
 ## Recovery authorizations
 

@@ -78,7 +78,9 @@ Final new-asset verification: actual1-contract SOL bull-spread fill delivered ex
 
 ## House vault, points and STRATA (local only)
 
-User asked for the GTM flywheel to be built: a pooled house vault, points, STRATA, staking and fee sharing. It is implemented and tested on the local fork only. **Nothing is deployed to Monad testnet or the hosted stack; ask before deploying.** See [house vault](house-vault.md).
+User asked for the GTM flywheel to be built: a pooled house vault, points, STRATA, staking and fee sharing. Implemented, tested locally and deployed to Monad testnet on 13 October with `scripts/testnet-house.ts` (vault `0x4E6537315026f2Fb85857B38A1dFe749F47bC683`, genesis until 2026-10-14 22:15:46 UTC). Production domain is now https://strata-xyz.vercel.app; the repo is `rogermas05/strata-monad`. See [house vault](house-vault.md).
+
+The deployment also fixed a hosted outage: the keeper had run out of gas, and afterwards a 130k-block read-model catch-up could never finish inside one 300 s pass because progress was only saved at the end. `indexTo` now saves every 100 ranges while holding the lease, and `claimWorker` ignores an in-process owner whose database lease has expired (a killed invocation never released it). The deployer was refilled with 1.2 MON from the maker; both accounts need a faucet top-up soon. Use `vercel --prod --force` if a function serves stale code.
 
 - Contracts: `HouseVault.sol` (USDC-only, weekly epochs, cash-only share price, operator = maker key, 10% performance fee to staking), `Strata.sol` (`StrataToken` stake-only until enabled, `StrataStaking`, `StrataDistributor` cumulative Merkle claims). Engine, router and adapters are unchanged.
 - Core: `points.ts`, `merkle.ts`, `house-epoch.ts`, `house-actions.ts`. API: `house.ts` (snapshot extension, account/rewards views, root publishing), `house-worker.ts` (launch, roll, quoting), routes `/api/house/:address`, `/api/rewards/:address`, local `/api/demo/house-cycle`. The worker policy admits vault/distributor calls for the maker role. Web: `House.tsx` (`/house`, `/rewards`).

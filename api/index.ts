@@ -103,11 +103,17 @@ export default async function handler(request: any, response: any) {
           return response
             .status(503)
             .json({ error: "Public workers disabled" });
+        const started = Date.now();
+        // Elapsed-time markers in the function log locate a pass that stalls.
+        const step = (name: string) =>
+          console.log(`worker ${name} +${Date.now() - started}ms`);
         await runtime.serialized(async () => {
+          step("start");
           await runtime.reloadCloudReadModel();
           const { runPythPass } =
             await import("../apps/api/src/pyth-keeper.ts");
           await runPythPass();
+          step("prices");
           const snap = await runtime.refresh();
           const { runMakerCycle } =
             await import("../apps/api/src/maker-worker.ts");
@@ -118,6 +124,7 @@ export default async function handler(request: any, response: any) {
             : [];
           await runMakerCycle({ marketIds: chosen });
           await saveCloudState("maker-cursor", cursor + 1);
+          step("maker");
           if (runtime.manifest.house) {
             // One vault book per pass, after any launch or roll. A vault failure
             // must not stop the project maker's pass from being published.
@@ -141,6 +148,7 @@ export default async function handler(request: any, response: any) {
               );
             }
             await saveCloudState("house-cursor", houseCursor + 1);
+            step("house");
           }
           // Funding a new book can take most of the immutable price window.
           // Refresh signed prices again before publishing the completed pass.
@@ -167,6 +175,7 @@ export default async function handler(request: any, response: any) {
             );
           await runtime.refresh();
           await runtime.persistCloudReadModel();
+          step("persisted");
           await saveCloudState("worker-health", {
             status: "ready",
             lastSuccess: Date.now(),

@@ -1,6 +1,6 @@
 # House vault, points and STRATA
 
-The house vault lets anyone deposit dUSDC and share the book that sells options to traders. Points reward depositors and losing traders, and convert to STRATA, which can be staked for the vault's performance fee. Everything here runs on the local Monad fork. Nothing is deployed publicly.
+The house vault lets anyone deposit dUSDC and share the book that sells options to traders. Points reward depositors and losing traders, and convert to STRATA, which can be staked for the vault's performance fee. It runs on the local Monad fork and on Monad testnet: the vault is at `0x4E6537315026f2Fb85857B38A1dFe749F47bC683`, with genesis deposits open until launch at 2026-10-14 22:15:46 UTC.
 
 ## Contracts
 
@@ -74,6 +74,6 @@ The API worker launches the vault, rolls it once every epoch reference settles, 
 
 ## Not done
 
-- Public testnet deployment, wiring into the hosted Vercel/Supabase stack, and an audit.
+- An audit. `scripts/testnet-house.ts` performed the testnet deployment (journals and receipts in `.runtime/testnet/house`).
 - The vault takes dUSDC only; it does not write MON calls.
 - STRATA has no market, and the fee-sharing token design has regulatory implications that need review before any real launch.
