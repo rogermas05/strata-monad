@@ -36,6 +36,7 @@ import {
   workersPaused,
   recordWorkerError,
   seedObservedPrices,
+  setDisplayPrices,
   runtimeDirectory,
 } from "./runtime.ts";
 import { cloudEnabled, cloudRequest } from "./cloud-store.ts";
@@ -350,6 +351,35 @@ export function startPythKeeper() {
 }
 
 /** One bounded scheduled invocation; safe to repeat after a process restart. */
+/** Latest off-chain Pyth prices for display only; signs and sends nothing. */
+export async function refreshDisplayPrices() {
+  const access = {
+    endpoint: process.env.HERMES_URL ?? "https://pyth.dourolabs.app/hermes",
+    apiKey: process.env.PYTH_API_KEY ?? "",
+  };
+  const sources = updateSources(access);
+  const results = await Promise.allSettled(
+    manifestAssets(manifest).map(async (asset) => {
+      const update = await sources(asset)(asset.assetId);
+      return update
+        ? ([
+            asset.key,
+            {
+              price: Number(update.price) * 10 ** update.exponent,
+              publishedAt: update.publishTime,
+            },
+          ] as const)
+        : null;
+    }),
+  );
+  setDisplayPrices(
+    new Map(
+      results.flatMap((r) =>
+        r.status === "fulfilled" && r.value ? [r.value] : [],
+      ),
+    ),
+  );
+}
 export async function refreshLivePrices() {
   const access = {
     endpoint: process.env.HERMES_URL ?? "https://pyth.dourolabs.app/hermes",

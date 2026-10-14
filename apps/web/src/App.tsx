@@ -28,6 +28,7 @@ import {
   ExternalLink,
   Landmark,
   Sparkles,
+  Zap,
 } from "lucide-react";
 import { api, ActionRequestError } from "./api.ts";
 import { MarketSelector } from "./MarketSelector.tsx";
@@ -261,6 +262,31 @@ export function App() {
     navigate(`/trade?market=${id}${side ? `&side=${side}` : ""}`);
     setSearchOpen(false);
   }
+  // Asleep: some open markets wait for on-chain price relays. Feeds that
+  // others already push on-chain stay tradable regardless.
+  const sleeping =
+    !!snapshot?.trading &&
+    snapshot.trading.mode === "display" &&
+    (!snapshot.service.newExposureAllowed ||
+      snapshot.markets.some(
+        (m) => m.active && !m.healthy && snapshot.underlyings[m.asset]?.open,
+      ));
+  const waking =
+    !!snapshot?.trading && snapshot.trading.awakeUntil > Date.now();
+  async function wake() {
+    try {
+      await api.wake();
+      await qc.invalidateQueries({ queryKey: ["snapshot"] });
+      setToast({
+        message: "Waking on-chain trading. Orders open in about 20 seconds.",
+      });
+    } catch (e) {
+      setToast({
+        message: e instanceof Error ? e.message : String(e),
+        error: true,
+      });
+    }
+  }
   async function act(action: Action) {
     if (busy) return false;
     if (snapshot?.manifest.mode === "testnet" && !walletAddress) {
@@ -271,10 +297,26 @@ export function App() {
       });
       return false;
     }
+    const touched = [
+      action.marketId,
+      ...(action.legs?.map((leg) => leg.marketId) ?? []),
+    ];
+    const stale = snapshot?.markets.some(
+      (m) => touched.includes(m.id) && !m.healthy,
+    );
     if (
       requiresLiveMarket(action.action) &&
-      !snapshot?.service.newExposureAllowed
+      (!snapshot?.service.newExposureAllowed || (sleeping && stale))
     ) {
+      if (sleeping && !snapshot!.trading!.gasLow) {
+        if (!waking) await wake();
+        else
+          setToast({
+            message:
+              "On-chain trading is waking up. Try again in a few seconds.",
+          });
+        return false;
+      }
       setToast({
         message: snapshot?.service.reason ?? "Waiting for current market data",
         error: true,
@@ -493,15 +535,31 @@ export function App() {
           </div>
         </header>
         <main className="workspace">
-          {!snapshot.service.newExposureAllowed && (
-            <div className="service-notice" role="status">
-              <AlertCircle size={15} />
+          {sleeping ? (
+            <div className="service-notice trading-notice" role="status">
+              <Zap size={15} />
               <span>
-                {snapshot.service.reason} New orders and issuance are paused.
-                Contract exits remain available.
+                {snapshot.trading!.gasLow
+                  ? "Live prices from Pyth. On-chain trading is paused: the demo's testnet gas wallet is empty."
+                  : waking
+                    ? "Waking on-chain trading: relaying signed prices and refreshing books, usually about 20 seconds."
+                    : "Live prices from Pyth. Some markets sleep to save testnet gas; enabling trading relays their on-chain prices."}
               </span>
-              <button onClick={() => void refetch()}>Retry</button>
+              {!snapshot.trading!.gasLow && !waking && (
+                <button onClick={() => void wake()}>Enable trading</button>
+              )}
             </div>
+          ) : (
+            !snapshot.service.newExposureAllowed && (
+              <div className="service-notice" role="status">
+                <AlertCircle size={15} />
+                <span>
+                  {snapshot.service.reason} New orders and issuance are paused.
+                  Contract exits remain available.
+                </span>
+                <button onClick={() => void refetch()}>Retry</button>
+              </div>
+            )
           )}
           <Suspense
             fallback={

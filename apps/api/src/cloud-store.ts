@@ -120,3 +120,12 @@ export function cloudSignerJournal(
     },
   };
 }
+
+/** A visitor asked for on-chain trading. Public, so it needs no worker lease. */
+export async function requestTradingWake(at = Date.now()) {
+  await cloudRequest("strata_state", "POST", {
+    id: "trading-wake",
+    value: { at },
+    updated_at: new Date(at).toISOString(),
+  });
+}

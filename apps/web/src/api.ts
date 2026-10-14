@@ -60,6 +60,7 @@ export const api = {
     request<OracleProof>("/oracle/inspect", { proof, account }),
   portfolio: (address: string) => request<Portfolio>(`/portfolio/${address}`),
   house: (address: string) => request<HouseAccount>(`/house/${address}`),
+  wake: () => request<{ awakeUntil: number }>("/wake", {}),
   rewards: (address: string) => request<RewardsAccount>(`/rewards/${address}`),
   nonce: (address: string) =>
     request<{ nonce: string; usdcAllowance: string }>(`/recovery/${address}`),

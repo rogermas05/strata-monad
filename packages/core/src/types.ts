@@ -263,6 +263,12 @@ export interface Snapshot {
     };
   };
   house?: HouseState;
+  /** Hosted demo only: on-chain trading sleeps until a visitor wakes it. */
+  trading?: {
+    mode: "display" | "trading";
+    awakeUntil: number;
+    gasLow: boolean;
+  };
   indexer: {
     lastBlock: string;
     lag: number;

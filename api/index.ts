@@ -6,10 +6,19 @@ import {
   claimWorker,
   releaseWorker,
   saveCloudState,
+  requestTradingWake,
 } from "../apps/api/src/cloud-store.ts";
 import { redactDiagnostic } from "../packages/core/src/deployment-config.ts";
 
 process.env.STRATA_SERVERLESS = "1";
+/** On-chain trading stays awake this long after the last wake request. */
+const AWAKE_MS = 10 * 60 * 1000;
+/** Repeated wake requests inside this window are not rewritten. */
+const WAKE_DEBOUNCE_MS = 60 * 1000;
+/** Below this keeper balance the worker cannot relay prices, so it stays asleep. */
+const KEEPER_MIN_WEI = 50_000_000_000_000_000n;
+type Wake = { at: number };
+const awakeUntil = (wake: Wake | undefined) => (wake ? wake.at + AWAKE_MS : 0);
 process.env.STRATA_RUNTIME_DIRECTORY = `/tmp/strata-${process.pid}`;
 let application:
   Promise<typeof import("../apps/api/src/server.ts")> | undefined;
@@ -77,9 +86,15 @@ export default async function handler(request: any, response: any) {
             localCheckpoint: null,
           });
         }
+        const wake = await loadCloudState<Wake>("trading-wake");
         return response.status(200).json({
           ...saved,
           service,
+          trading: {
+            mode: worker?.mode ?? "trading",
+            awakeUntil: awakeUntil(wake),
+            gasLow: worker?.gasLow ?? false,
+          },
           maker: {
             ...saved.maker,
             errors: [
@@ -92,6 +107,16 @@ export default async function handler(request: any, response: any) {
           })),
         });
       }
+    }
+    if (path === "/api/wake") {
+      if (request.method !== "POST")
+        return response.status(405).json({ error: "Use POST" });
+      const wake = await loadCloudState<Wake>("trading-wake");
+      if (!wake || Date.now() - wake.at > WAKE_DEBOUNCE_MS)
+        await requestTradingWake();
+      return response
+        .status(202)
+        .json({ awakeUntil: awakeUntil({ at: Date.now() }) });
     }
     if (path === "/api/worker") {
       if (!(await claimWorker(randomUUID())))
@@ -107,6 +132,32 @@ export default async function handler(request: any, response: any) {
         // Elapsed-time markers in the function log locate a pass that stalls.
         const step = (name: string) =>
           console.log(`worker ${name} +${Date.now() - started}ms`);
+        const wake = await loadCloudState<Wake>("trading-wake");
+        const keeperBalance = await runtime.client.getBalance({
+          address: runtime.manifest.deployer,
+        });
+        const gasLow = keeperBalance < KEEPER_MIN_WEI;
+        if (gasLow || Date.now() >= awakeUntil(wake)) {
+          // Display pass: real off-chain Pyth prices for charts and marks,
+          // chain reads for books and balances, and no signed transactions.
+          await runtime.serialized(async () => {
+            await runtime.reloadCloudReadModel();
+            const { refreshDisplayPrices } =
+              await import("../apps/api/src/pyth-keeper.ts");
+            await refreshDisplayPrices();
+            await runtime.refresh();
+            await runtime.persistCloudReadModel();
+            await saveCloudState("worker-health", {
+              status: "ready",
+              mode: "display",
+              gasLow,
+              lastSuccess: Date.now(),
+              errors: runtime.workerErrors.slice(-5),
+              signers: runtime.workerSignerStatus(),
+            });
+          });
+          return response.status(200).json({ status: "display" });
+        }
         await runtime.serialized(async () => {
           step("start");
           await runtime.reloadCloudReadModel();
@@ -178,6 +229,8 @@ export default async function handler(request: any, response: any) {
           step("persisted");
           await saveCloudState("worker-health", {
             status: "ready",
+            mode: "trading",
+            gasLow: false,
             lastSuccess: Date.now(),
             errors: runtime.workerErrors.slice(-5),
             signers: runtime.workerSignerStatus(),

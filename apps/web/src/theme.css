@@ -2873,3 +2873,17 @@ tr.clickable {
 .genesis-banner strong {
   color: var(--text-strong);
 }
+.service-notice.trading-notice {
+  background: #0d1420 !important;
+  border-bottom-color: rgb(93 142 240 / 0.3);
+  color: #a9c2f5;
+}
+.service-notice.trading-notice > svg {
+  color: var(--accent);
+}
+.service-notice.trading-notice button {
+  padding: 3px 10px;
+  border: 1px solid rgb(93 142 240 / 0.5);
+  background: var(--accent-tint);
+  text-decoration: none;
+}

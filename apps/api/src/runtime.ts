@@ -860,6 +860,16 @@ const snapshotExtensions: SnapshotExtension[] = [];
 export function extendSnapshot(extension: SnapshotExtension) {
   snapshotExtensions.push(extension);
 }
+const displayPrices = new Map<string, { price: number; publishedAt: number }>();
+/**
+ * Off-chain Pyth prices shown on charts and marks while on-chain relays sleep.
+ * They never gate trading: readiness and market health use on-chain prices only.
+ */
+export function setDisplayPrices(
+  prices: Map<string, { price: number; publishedAt: number }>,
+) {
+  for (const [key, value] of prices) displayPrices.set(key, value);
+}
 const OBSERVED_PRICES = 720;
 const observed = new Map<string, Snapshot["prices"]>();
 /** Adds earlier chart points for an asset (e.g. a startup backfill). */
@@ -920,7 +930,15 @@ async function buildSnapshot(): Promise<Snapshot> {
   const assets = manifestAssets(manifest);
   const quotes = new Map<
     string,
-    { spot: number; published: number; valid: boolean; live: boolean }
+    {
+      spot: number;
+      /** On-chain publish time: the only time that gates trading. */
+      published: number;
+      /** Publish time of the displayed price (off-chain Pyth while relays sleep). */
+      shownAt: number;
+      valid: boolean;
+      live: boolean;
+    }
   >();
   for (const asset of assets) {
     const previous = snapshot?.underlyings?.[asset.key];
@@ -942,9 +960,12 @@ async function buildSnapshot(): Promise<Snapshot> {
       // Keep contract custody and fixed expiry claims readable during an oracle outage.
     }
     const age = timestamp - Number(at);
+    const display = displayPrices.get(asset.key);
+    const shown = display && display.publishedAt > Number(at) ? display : null;
     quotes.set(asset.key, {
-      spot: Number(raw) / 1e8,
+      spot: shown?.price ?? Number(raw) / 1e8,
       published: Number(at),
+      shownAt: shown?.publishedAt ?? Number(at),
       valid,
       // A reference recorded outside the session never opens the market.
       live:
@@ -1195,10 +1216,10 @@ async function buildSnapshot(): Promise<Snapshot> {
     if (manifest.oracleMode === "pyth" && quote.valid) {
       // Verifier updates are not indexed; chart history is what this service observed.
       const seen = observed.get(asset.key) ?? [];
-      if (seen.at(-1)?.timestamp !== quote.published)
+      if (seen.at(-1)?.timestamp !== quote.shownAt)
         observed.set(
           asset.key,
-          [...seen, { timestamp: quote.published, price: quote.spot }].slice(
+          [...seen, { timestamp: quote.shownAt, price: quote.spot }].slice(
             -OBSERVED_PRICES,
           ),
         );
@@ -1216,7 +1237,7 @@ async function buildSnapshot(): Promise<Snapshot> {
     underlyings[asset.key] = {
       key: asset.key,
       spot: quote.spot,
-      publishedAt: quote.published,
+      publishedAt: quote.shownAt,
       live: quote.live,
       open,
       nextChange,
