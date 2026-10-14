@@ -1,4 +1,9 @@
-import type { Portfolio, Snapshot } from "../../../packages/core/src/index.ts";
+import type {
+  HouseAccount,
+  Portfolio,
+  RewardsAccount,
+  Snapshot,
+} from "../../../packages/core/src/index.ts";
 import type { OracleProof } from "../../../packages/core/src/oracle-proof.ts";
 import type {
   RecoveryPacket,
@@ -54,6 +59,8 @@ export const api = {
   inspectOracle: (proof: OracleProof, account: string) =>
     request<OracleProof>("/oracle/inspect", { proof, account }),
   portfolio: (address: string) => request<Portfolio>(`/portfolio/${address}`),
+  house: (address: string) => request<HouseAccount>(`/house/${address}`),
+  rewards: (address: string) => request<RewardsAccount>(`/rewards/${address}`),
   nonce: (address: string) =>
     request<{ nonce: string; usdcAllowance: string }>(`/recovery/${address}`),
   signRecovery: (packet: RecoveryPacket) =>

@@ -57,6 +57,22 @@ export const manifestSchema = z
     oracleMode: z.enum(["demo", "pyth"]),
     kuruMargin: contract.optional(),
     kuruFactory: contract.optional(),
+    house: z
+      .object({
+        vault: contract,
+        strata: contract,
+        staking: contract,
+        distributor: contract,
+        operator: contract,
+        launchTime: integer,
+        genesisStart: integer,
+        deployedBlock: z
+          .string()
+          .regex(/^(0|[1-9]\d*)$/)
+          .max(30),
+      })
+      .strict()
+      .optional(),
     assets: z
       .array(
         z
@@ -120,6 +136,16 @@ export const manifestSchema = z
       ctx.addIssue({
         code: "custom",
         message: "Network mode does not match its chain and browser endpoint",
+      });
+    if (
+      m.house &&
+      (m.venueMode !== "kuru" ||
+        m.house.genesisStart > m.house.launchTime ||
+        m.house.operator.toLowerCase() !== m.maker.toLowerCase())
+    )
+      ctx.addIssue({
+        code: "custom",
+        message: "House vault needs Kuru books and the maker as operator",
       });
     if (m.venueMode === "kuru" && (!m.kuruMargin || !m.kuruFactory))
       ctx.addIssue({

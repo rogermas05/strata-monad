@@ -17,6 +17,7 @@ import { manifestAssets } from "../../../packages/core/src/manifest-assets.ts";
 import { cleanupExpiredMaker } from "../../../packages/core/src/expiry-cleanup.ts";
 import { startMakerWorker, resetMakerCycle } from "./maker-worker.ts";
 import { startPythKeeper } from "./pyth-keeper.ts";
+import { startHouseWorker } from "./house-worker.ts";
 const cleaned = new Set<number>();
 const PATH_AMPLITUDE = 0.0039;
 export function resetWorkerState() {
@@ -28,6 +29,7 @@ export function startWorkers() {
   if (manifest.oracleMode !== "demo") {
     startPythKeeper();
     startMakerWorker();
+    startHouseWorker();
     return;
   }
   let keeperPending = false;
@@ -80,4 +82,5 @@ export function startWorkers() {
       });
   }, 15000).unref();
   startMakerWorker();
+  startHouseWorker();
 }

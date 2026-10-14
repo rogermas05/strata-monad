@@ -26,6 +26,8 @@ import {
   LoaderCircle,
   Menu,
   ExternalLink,
+  Landmark,
+  Sparkles,
 } from "lucide-react";
 import { api, ActionRequestError } from "./api.ts";
 import { MarketSelector } from "./MarketSelector.tsx";
@@ -75,6 +77,12 @@ const OracleProofs = lazy(() =>
     default: module.OracleProofs,
   })),
 );
+const House = lazy(() =>
+  import("./House.tsx").then((module) => ({ default: module.House })),
+);
+const Rewards = lazy(() =>
+  import("./House.tsx").then((module) => ({ default: module.Rewards })),
+);
 const nav = [
   ["/markets", "Markets", ChartNoAxesCombined],
   ["/trade", "Trade", ArrowDownUp],
@@ -84,7 +92,11 @@ const nav = [
   ["/analytics", "Analytics", ChartSpline],
   ["/settlements", "Settlements", ShieldCheck],
   ["/maker", "Maker console", Activity],
+  ["/house", "House", Landmark],
+  ["/rewards", "Rewards", Sparkles],
 ] as const;
+/** House pages appear only on deployments that include the vault. */
+const housePaths = new Set(["/house", "/rewards"]);
 export function App() {
   const qc = useQueryClient(),
     navigate = useNavigate(),
@@ -423,15 +435,21 @@ export function App() {
             <span>Strata</span>
           </NavLink>
           <nav className="primary-nav" aria-label="Main navigation">
-            {nav.map(([path, label]) => (
-              <NavLink key={path} to={path} onClick={() => setMobileNav(false)}>
-                {label === "Write options"
-                  ? "Write"
-                  : label === "Maker console"
-                    ? "Liquidity"
-                    : label}
-              </NavLink>
-            ))}
+            {nav
+              .filter(([path]) => snapshot.house || !housePaths.has(path))
+              .map(([path, label]) => (
+                <NavLink
+                  key={path}
+                  to={path}
+                  onClick={() => setMobileNav(false)}
+                >
+                  {label === "Write options"
+                    ? "Write"
+                    : label === "Maker console"
+                      ? "Liquidity"
+                      : label}
+                </NavLink>
+              ))}
           </nav>
           <div className="topbar-right">
             <button
@@ -507,6 +525,8 @@ export function App() {
               <Route path="/recovery" element={<Recovery />} />
               <Route path="/oracle" element={<OracleProofs />} />
               <Route path="/maker" element={<Maker />} />
+              <Route path="/house" element={<House />} />
+              <Route path="/rewards" element={<Rewards />} />
               <Route path="/status" element={<Status />} />
               <Route path="*" element={<Markets />} />
             </Routes>

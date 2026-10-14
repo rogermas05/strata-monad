@@ -2851,3 +2851,25 @@ tr.clickable {
     grid-auto-columns: minmax(170px, 48%);
   }
 }
+.genesis-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 12px 14px;
+  border: 1px solid rgb(93 142 240 / 0.35);
+  background: var(--accent-tint);
+  color: var(--text-2);
+}
+.genesis-banner > svg {
+  margin-top: 2px;
+  color: var(--accent);
+}
+.genesis-banner > div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.genesis-banner strong {
+  color: var(--text-strong);
+}

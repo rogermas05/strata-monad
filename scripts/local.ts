@@ -93,6 +93,11 @@ if (existsSync(".runtime/manifest.json")) {
     !!(await client.getCode({ address: manifest.engine }));
 }
 if (!seeded) await run("npm", ["run", "local:seed"]);
+const deployed = JSON.parse(
+  readFileSync(".runtime/manifest.json", "utf8"),
+) as Manifest;
+if (!deployed.house && deployed.venueMode === "kuru")
+  await run("npm", ["run", "house:deploy"]);
 console.log(
   `Local protocol ready. Terminal: http://localhost:${process.env.WEB_PORT ?? 5173}. Ctrl+C stops services started here.`,
 );

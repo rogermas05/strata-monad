@@ -98,6 +98,10 @@ When replacing quotes, the worker cancels first, then rereads custody and obliga
 
 The liquidity console reports net option delta and vega; these exclude collateral and other underlying holdings and are not the maker's total portfolio Greeks. For deterministic local drills, `/api/demo/maker-cycle` can execute the same scheduler cycle for up to four selected market IDs inside a checkpoint. It does not run on public networks.
 
+## House vault, points and STRATA
+
+**House** lets anyone deposit dUSDC into a pooled, fully funded writer that the maker key operates. The vault writes puts and spreads on every cash-settled market, quotes them on Kuru and rolls weekly. Every position settles to cash before each roll, so share prices need no model valuation. Deposits open in a genesis window before launch. **Rewards** converts points from genesis deposits, vault deposits and losses paid to the house into STRATA. Staked STRATA earns the vault's 10% performance fee. It is live on Monad testnet (see [testnet demo](docs/testnet-demo.md)). `npm run local:up` deploys it on a fresh fork, and `npm run house:deploy` adds it to an existing local deployment. See [house vault](docs/house-vault.md) for the contracts, trust model, point rules and endpoints.
+
 ## Recovery authorizations
 
 Open **Settlements → Recovery authorizations** to prepare or import a recovery package. The preview reads the exact payout or collateral release from the engine and shows full participant/engine addresses, chain, quantity, nonces and deadline.

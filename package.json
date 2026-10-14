@@ -26,6 +26,7 @@
     "deployment:package": "tsx scripts/deployment-package.ts",
     "deployment:rehearse": "tsx scripts/rehearse-deployment.ts",
     "maker:bootstrap": "tsx scripts/maker-bootstrap-cli.ts",
+    "house:deploy": "tsx scripts/house-deploy.ts",
     "format": "prettier --write apps packages scripts tests *.json *.ts",
     "format:check": "prettier --check apps packages scripts tests *.json *.ts",
     "setup": "tsx scripts/setup.ts",

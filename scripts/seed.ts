@@ -11,6 +11,7 @@ import {
   type Hex,
 } from "viem";
 import { mkdirSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 import { artifact, exportAbis } from "./artifacts.ts";
 import {
   priceOption,
@@ -600,8 +601,10 @@ const manifest: Manifest = {
   assets,
   ...(venueMode === "kuru" ? { kuruMargin: margin, kuruFactory: factory } : {}),
 };
-mkdirSync(".runtime", { recursive: true });
-writeFileSync(".runtime/manifest.json", JSON.stringify(manifest, null, 2));
+// MANIFEST_PATH lets an isolated stack seed without replacing the default manifest.
+const manifestPath = process.env.MANIFEST_PATH ?? ".runtime/manifest.json";
+mkdirSync(dirname(manifestPath), { recursive: true });
+writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
 exportAbis();
 console.log(
   `Local deployment complete. ${configs.length} instruments across ${assets.map((a) => a.key).join(", ")}. Start npm run dev.`,

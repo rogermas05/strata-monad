@@ -64,6 +64,20 @@ import {
 import { pythAbi } from "../../../packages/core/src/pyth.ts";
 import { inspectTransaction } from "../../../packages/core/src/transaction-inspection.ts";
 import { runMakerCycle, drainMakerQuotes } from "./maker-worker.ts";
+import {
+  houseAccount,
+  rewardsAccount,
+  vaultAbi,
+  stakingAbi,
+  distributorAbi,
+  strataAbi,
+} from "./house.ts";
+import { runHouseCycle } from "./house-worker.ts";
+import {
+  houseActions,
+  houseSteps,
+  isHouseAction,
+} from "../../../packages/core/src/house-actions.ts";
 import { startWorkers, resetWorkerState } from "./workers.ts";
 import { makerConfigSchema } from "./maker-config.ts";
 import {
@@ -164,6 +178,9 @@ app.post("/api/transactions", async (request, reply) => {
         kuruAbi,
         marginAbi,
         abi("DemoOrderBook"),
+        ...(manifest.house
+          ? [vaultAbi, stakingAbi, distributorAbi, strataAbi]
+          : []),
       ],
     );
     await recordTransaction(record);
@@ -195,6 +212,25 @@ app.get("/api/portfolio/:address", async (request, reply) => {
     .safeParse((request.params as { address: string }).address);
   if (!a.success) return reply.code(400).send({ error: "Invalid address" });
   return portfolio(a.data as Address);
+});
+const addressParam = z.string().regex(/^0x[0-9a-fA-F]{40}$/);
+app.get("/api/house/:address", async (request, reply) => {
+  if (!manifest.house)
+    return reply.code(404).send({ error: "No house vault in this deployment" });
+  const a = addressParam.safeParse(
+    (request.params as { address: string }).address,
+  );
+  if (!a.success) return reply.code(400).send({ error: "Invalid address" });
+  return houseAccount(a.data as Address);
+});
+app.get("/api/rewards/:address", async (request, reply) => {
+  if (!manifest.house)
+    return reply.code(404).send({ error: "No house vault in this deployment" });
+  const a = addressParam.safeParse(
+    (request.params as { address: string }).address,
+  );
+  if (!a.success) return reply.code(400).send({ error: "Invalid address" });
+  return rewardsAccount(a.data as Address, current() ?? (await refresh()));
 });
 app.get("/api/oracle", () => oracleServiceStatus());
 const oracleRequest = z
@@ -349,6 +385,7 @@ const actionSchema = z
       "revoke-authorizations",
       "submit-oracle-proof",
       "approve-recovery",
+      ...houseActions,
     ]),
     marketId: z.number().int().positive().optional(),
     quantity: z
@@ -360,6 +397,11 @@ const actionSchema = z
       .regex(/^\d+(\.\d{1,6})?$/)
       .optional(),
     isBuy: z.boolean().optional(),
+    amount: z
+      .string()
+      .regex(/^\d+(\.\d{1,18})?$/)
+      .optional(),
+    stake: z.boolean().optional(),
     orderId: z.string().regex(/^\d+$/).optional(),
     packet: recoverySchema.optional(),
     proof: oracleProofSchema.optional(),
@@ -419,7 +461,31 @@ app.post("/api/actions", { bodyLimit: 160000 }, async (request, reply) => {
             await send(user, token, tokenAbi, "approve", [spender, amount]),
           );
       }
-      if (a.action === "submit-oracle-proof") {
+      if (isHouseAction(a.action)) {
+        // The server serves its own published proof; clients cannot supply one here.
+        const claim =
+          a.action === "rewards-claim"
+            ? ((await rewardsAccount(user, snap ?? (await refresh()))).claim ??
+              undefined)
+            : undefined;
+        for (const step of houseSteps(
+          manifest,
+          { action: a.action, amount: a.amount, stake: a.stake, claim },
+          user,
+        ))
+          if (step.kind === "approve")
+            await approve(step.token, step.spender, step.amount);
+          else
+            hashes.push(
+              await send(
+                user,
+                step.address,
+                step.abi,
+                step.functionName,
+                step.args,
+              ),
+            );
+      } else if (a.action === "submit-oracle-proof") {
         if (!a.proof) throw new Error("Missing reviewed oracle proof");
         const checked = await inspectProof(a.proof, user);
         await archiveProof(checked);
@@ -967,6 +1033,27 @@ app.post("/api/demo/maker-cycle", async (request, reply) => {
       marketIds: input.data.marketIds,
     }),
   );
+});
+app.post("/api/demo/house-cycle", async (request, reply) => {
+  if (!local) return reply.code(403).send({ error: "Local only" });
+  if (!manifest.house)
+    return reply.code(404).send({ error: "No house vault in this deployment" });
+  const input = z
+    .object({
+      marketIds: z.array(z.number().int().positive()).min(1).max(4).optional(),
+    })
+    .strict()
+    .safeParse(request.body ?? {});
+  if (!input.success)
+    return reply.code(400).send({ error: "Choose up to four known markets" });
+  try {
+    return await serialized(async () => {
+      const hash = await runHouseCycle({ marketIds: input.data.marketIds });
+      return { hash: hash ?? null, house: (await refresh()).house };
+    });
+  } catch (error) {
+    return reply.code(400).send({ error: safeDiagnostic(error) });
+  }
 });
 app.post("/api/demo/maker-config", async (request, reply) => {
   if (!local) return reply.code(403).send({ error: "Local only" });

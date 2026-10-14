@@ -65,6 +65,84 @@ export interface Manifest {
   oracleMode: "demo" | "pyth";
   /** Present when the engine's oracle is an OracleRouter with per-asset bindings. */
   assets?: ManifestAsset[];
+  /** House vault, STRATA token, staking and points distributor. */
+  house?: HouseManifest;
+}
+export interface HouseManifest {
+  vault: Address;
+  strata: Address;
+  staking: Address;
+  distributor: Address;
+  /** The maker key operates the vault's book. */
+  operator: Address;
+  /** Trading starts at the first roll on or after this time. */
+  launchTime: number;
+  /** Opening of the genesis pre-deposit window. */
+  genesisStart: number;
+  deployedBlock: string;
+}
+/** Vault state for the terminal. Money values are USDC, share values are sHOUSE. */
+export interface HouseState {
+  address: Address;
+  epoch: number;
+  launchTime: number;
+  genesisStart: number;
+  lastRollTime: number;
+  /** Assets deployed this epoch, fixed at the last roll. */
+  epochStartAssets: number;
+  pendingDeposits: number;
+  queuedShares: number;
+  reservedWithdrawals: number;
+  totalShares: number;
+  depositCap: number;
+  depositsPaused: boolean;
+  performanceFeeBps: number;
+  depositors: number;
+  /** Cash, venue balances and positions marked at model prices. An estimate until the roll. */
+  estimatedAssets: number;
+  estimatedPricePerShare: number;
+  /** Largest loss if every short position pays its maximum, net of held claims. */
+  maxLoss: number;
+  lastPricePerShare: number;
+  series: number[];
+  history: {
+    epoch: number;
+    pricePerShare: number;
+    assets: number;
+    fee: number;
+    timestamp: number;
+  }[];
+  totalFees: number;
+  rootEpoch: number;
+}
+export interface HouseAccount {
+  address: Address;
+  usdc: number;
+  shares: number;
+  value: number;
+  pendingDeposit: number;
+  withdrawal: { epoch: number; shares: number; ready: boolean; assets: number };
+}
+export interface PointsBreakdown {
+  genesis: number;
+  deposits: number;
+  losses: number;
+  total: number;
+}
+export interface RewardsAccount {
+  address: Address;
+  points: PointsBreakdown;
+  /** Points accrued after the last published root, shown but not yet claimable. */
+  unpublished: number;
+  claim: { epoch: number; cumulative: string; proof: Hex[] } | null;
+  claimed: number;
+  claimable: number;
+  strata: number;
+  staked: number;
+  cooling: number;
+  unlockAt: number;
+  earned: number;
+  totalStaked: number;
 }
 export interface DepthLevel {
   price: number;
@@ -184,6 +262,7 @@ export interface Snapshot {
       }[];
     };
   };
+  house?: HouseState;
   indexer: {
     lastBlock: string;
     lag: number;

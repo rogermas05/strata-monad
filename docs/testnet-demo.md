@@ -4,7 +4,7 @@ Verified 13 October 2026 UTC.
 
 ## Open the demo
 
-Website: https://strata-monad-demo.vercel.app. API health: https://strata-monad-demo.vercel.app/api/health. Chain 10143, RPC `https://testnet-rpc.monad.xyz`.
+Website: https://strata-xyz.vercel.app (the original https://strata-monad-demo.vercel.app still works). API health: https://strata-xyz.vercel.app/api/health. Chain 10143, RPC `https://testnet-rpc.monad.xyz`.
 
 Connect an injected browser wallet, switch to Monad testnet, and keep native testnet MON for gas. The account menu offers the rate-limited dUSDC faucet and native WMON wrapping. Start with 0.1 contracts on an active MON book. Review approvals, funding and execution in the wallet. The public service does not sign customer orders or expose local demo mutation endpoints.
 
@@ -49,6 +49,10 @@ select cron.alter_job((select jobid from cron.job where jobname='strata-public-w
 | Pyth verifier   | `0xFC6bd9F9f0c6481c6Af3A7Eb46b296A5B85ed379` |
 | Deployer/keeper | `0xF77E7BBfa05cBBc749C62F5dF6d47e9BE6961224` |
 | Project maker   | `0x7619e4Fad38aedE07aBFcA6c9ce85Aeaa4535103` |
+| House vault     | `0x4E6537315026f2Fb85857B38A1dFe749F47bC683` |
+| STRATA          | `0xd04fDfDC43368dEaC6379D6826E86C4C3fC85335` |
+| STRATA staking  | `0x49Addcce2346b6598D167A706fbCd0B51e0D7bc6` |
+| Distributor     | `0x904f18A3D4052AD2cbDBC9da8A2A18Cb03e0A896` |
 
 The original 52 signed deployment transactions were reconciled against exact package targets/calldata/nonces and canonical successful receipts. Deployment checks passed. Four more signed steps added a short MON expiry instrument, bringing the manifest to eleven series. The original MON maker bootstrap passed 22 signed transactions; hosted workers subsequently funded all active asset books.
 

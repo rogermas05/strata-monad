@@ -174,7 +174,10 @@ function policy(
     issuanceCapacity: risk.issuanceCapacity,
   };
 }
-function quotePrices(p: ReturnType<typeof policy>, external: BookOrder[]) {
+export function quotePrices(
+  p: { reservationPrice: number },
+  external: BookOrder[],
+) {
   const fair = p.reservationPrice;
   const bid = Math.max(
     1,
