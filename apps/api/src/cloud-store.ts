@@ -2,6 +2,7 @@ import type {
   SignerJournal,
   SignerJob,
 } from "../../../scripts/lib/managed-signer.ts";
+import { AsyncLocalStorage } from "node:async_hooks";
 import {
   decodeCloudState,
   encodeCloudState,
@@ -13,8 +14,11 @@ const serviceKey = process.env.STRATA_SUPABASE_SERVICE_KEY;
 export const cloudEnabled =
   !!process.env.STRATA_STATE_DATABASE_URL || (!!endpoint && !!serviceKey);
 let leaseOwner: string | undefined;
+const readOnlyRequest = new AsyncLocalStorage<boolean>();
+export const withReadOnlyState = <T>(run: () => Promise<T>) =>
+  readOnlyRequest.run(true, run);
 export const workerLease = "strata-public-worker";
-export const hasWorkerLease = () => !!leaseOwner;
+export const hasWorkerLease = () => !!leaseOwner && !readOnlyRequest.getStore();
 const largeStateCache = new Map<
   string,
   { updatedAt: string; value: unknown }
@@ -48,6 +52,8 @@ export async function cloudRequest<T>(
   return (text ? JSON.parse(text) : null) as T;
 }
 export async function claimWorker(owner: string) {
+  if (readOnlyRequest.getStore())
+    throw new Error("Read-only request cannot claim a worker lease");
   // A retiring invocation cannot inherit a newer invocation's lease in the same
   // process. A killed invocation (e.g. at the function time limit) never runs its
   // release, so its owner is only respected while its database lease is alive.
@@ -68,6 +74,8 @@ export async function claimWorker(owner: string) {
   return claimed;
 }
 export async function assertWorkerLease() {
+  if (readOnlyRequest.getStore())
+    throw new Error("Read-only request cannot use a worker lease");
   if (
     !leaseOwner ||
     !(await cloudRequest<boolean>("rpc/strata_renew_worker", "POST", {
@@ -78,6 +86,8 @@ export async function assertWorkerLease() {
     throw new Error("Worker lease lost; signing is stopped");
 }
 export async function releaseWorker() {
+  if (readOnlyRequest.getStore())
+    throw new Error("Read-only request cannot release a worker lease");
   const owner = leaseOwner;
   leaseOwner = undefined;
   if (owner)

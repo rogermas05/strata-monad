@@ -196,3 +196,32 @@ npx tsx scripts/run-hosted-liquidity.ts 10 resume .runtime/testnet/judging-windo
 QQQ and TSLA cannot be newly written or traded while their sessions are closed.
 Verify all24 currently open fresh books, then verify scheduled quotes when their
 sessions reopen. The paused scheduler must be restored after manual funding.
+
+
+Project-funded verification purchase completed once:0.1 contracts of
+`MON-1030-0.022/0.024-BULL` delivered exactly0.1 claims. Transaction
+`0x76c3684799fe821b204bf87b15aa7ca4751d6e31a154c8dacf287e87622acb75`
+was registered through the public transaction endpoint with HTTP200, operation
+`execute`, included at block71119643. The premium budget was126 micro-dUSDC.
+The baseline and result are retained privately; never repeat this completed
+verification to check whether it landed.
+
+An exact2.5 testnet MON transfer rebalanced keeper gas into the maker without a
+new faucet claim: `0xc5cc7dd4b9b11e99acd7f56f3a718be48303f2f8a29948186d1942db69dde9e3`.
+The guarded `gas` renewal mode requires the same worker lease and preserves a
+two-MON keeper allocation before sending. Do not rerun its recorded transfer.
+
+Deployment source was committed and pushed as `d7139eb`. An isolated checkout
+passed165 tests, TypeScript and frontend build. The original local demo price
+changes in `runtime.ts`, `workers.ts` and `demo-prices.ts` were preserved outside
+this commit. Vercel's Git deployment `dpl_HJhQWNpJbMhLwY1E6JwX47LW1znu` is ready.
+The public portfolio read measured3.5 seconds after batching, versus26 seconds
+before. Native balances still need replenishing for sustained usage; idle display
+passes and expiry maintenance continue without live repricing.
+
+
+All24 currently open fresh books now have both funded sides; four QQQ/TSLA
+books remain session-closed.166 tests pass, including explicit isolation of public
+read requests from a live worker lease. Fast public reads cannot borrow or renew
+the worker's lease. Final custody, canonical-block, portfolio, receipt and health
+checks are performed against the live deployment before resuming judging.

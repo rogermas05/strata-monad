@@ -30,6 +30,10 @@ if (existsSync(".runtime/testnet/judging-window/depth-purchase.json"))
   throw new Error(
     "Judging-window verification purchase already recorded; do not repeat the trade",
   );
+if (existsSync(".runtime/testnet/judging-window/depth-baseline.json"))
+  throw new Error(
+    "An unfinished verification has a saved baseline; reconcile its original receipt instead of repeating the trade",
+  );
 if (!(await cloud.claimWorker(randomUUID())))
   throw new Error(
     "Pause cron and wait for the worker lease before validating a purchase",
@@ -105,6 +109,14 @@ try {
     functionName: "balanceOf",
     args: [manifest.deployer],
   })) as bigint;
+  writeDeploymentJson(".runtime/testnet/judging-window/depth-baseline.json", {
+    account: manifest.deployer,
+    marketId: market.id,
+    token: market.token,
+    before: before.toString(),
+    quantity: quantity.toString(),
+    budget: budget.toString(),
+  });
   await send("approve", manifest.usdc, artifact("DemoUSDC").abi, "approve", [
     manifest.router,
     budget,

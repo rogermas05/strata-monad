@@ -1,18 +1,18 @@
 # Strata implementation handoff
 
-Updated 13 October 2026 UTC. Workspace `/Users/rogermas/.t3/projects/metropolis`.
+Updated 15 October 2026 UTC. Workspace `/Users/rogermas/.t3/projects/metropolis`.
 
 The user authorized fixing issues and deploying the full demo on Monad testnet, with Vercel and Supabase. Public credentials and funded accounts were supplied through ignored backend configuration. Do not ask again for deployment authorization. Never print secrets. Do not spawn agents unless separately authorized. Most source was already untracked; preserve it. No commit or PR was created during this deployment.
 
 ## Current deployment
 
-Public website/API: https://strata-monad-demo.vercel.app. Engine `0x4295487dcD487f9720a6d7b0Cd9d15645cF9745C`, chain 10143, 45 retained series, 43 unexpired contracts across 13 assets: MON/BTC/ETH/XAU/SOL/XRP/DOGE/BNB/HYPE/QQQ/TSLA/XAG/EUR. Scheduled books pause outside their Pyth sessions. Deployer/keeper `0xF77E7BBfa05cBBc749C62F5dF6d47e9BE6961224`, maker `0x7619e4Fad38aedE07aBFcA6c9ce85Aeaa4535103`.
+Public website/API: https://strata-xyz.vercel.app. Engine `0x4295487dcD487f9720a6d7b0Cd9d15645cF9745C`, chain 10143, 73 retained series, 71 unexpired contracts across 13 assets: MON/BTC/ETH/XAU/SOL/XRP/DOGE/BNB/HYPE/QQQ/TSLA/XAG/EUR. Scheduled books pause outside their Pyth sessions. Deployer/keeper `0xF77E7BBfa05cBBc749C62F5dF6d47e9BE6961224`, maker `0x7619e4Fad38aedE07aBFcA6c9ce85Aeaa4535103`.
 
-Vercel project `strata-monad-demo` in `rogermas05s-projects`, Node24. Supabase `Strata Demo`, `ygdhgcbnsekoabmkrxzf`, us-west-1. Private journal/read-model/receipt/proof tables, RLS and browser-role privilege revocation, renewable worker lease and Vault-backed scheduler. See [testnet demo operations](testnet-demo.md) for exact receipts and worker configuration.
+Vercel project `strata-monad-demo` in `rogermas05s-projects`, Node24. Neon Free `strata-state` in `iad1` now stores private state, journals, receipts, oracle archives and the signing lease. Supabase `ygdhgcbnsekoabmkrxzf` supplies the existing scheduler; its restricted REST API is no longer used for state. See [judging-window operations](judging-window.md) for the current configuration and renewal records.
 
 The original 52 reviewed signed transactions completed, were reconciled with canonical exact transactions and passed deployment checks. Four additional signed steps added short MON series 11, followed by manifest re-verification. Twenty-two signed maker bootstrap transactions funded the MON shelf; hosted worker passes funded remaining books. Real 0.1-contract weekly MON purchase passed. A separate funded expired claim handoff and authenticated settlement paid exactly 478 micro-dUSDC and burned holder claims. Do not call this a single instrument purchase-to-expiry drill.
 
-Seven core contracts and all 45 adapters have exact Sourcify creation/runtime matches. Etherscan mirroring hit submission limits. The series-11 adapter also has an exact match in `.runtime/testnet/source-verification-extra.json`.
+Seven core contracts and all 73 adapters have exact Sourcify creation/runtime matches. Etherscan mirroring hit submission limits. The series-11 adapter also has an exact match in `.runtime/testnet/source-verification-extra.json`.
 
 ## Implementation completed
 
@@ -20,9 +20,9 @@ Seven core contracts and all 45 adapters have exact Sourcify creation/runtime ma
 - Signed deployment/bootstrap executors reconstruct reviewed plans against trusted artifacts and pinned dependencies. Local rehearsal and public receipts validate actual signing; local fork gas estimates did not predict public gas adequately.
 - Runtime separates local unlocked customer actions from opt-in public role signers. Public customer/local demo mutation endpoints reject with 403. Browser wallets sign their own actions. Keys never enter `VITE_*` or manifests.
 - Pyth keeper authenticates actual public verifier updates, archives payloads before broadcast, relays live prices, and finalizes listed expiries with their immutable policies. MON is last-before pushed evidence with five-minute challenge; BTC/ETH unique first-after; XAU session-close last-before. Engine maximum live age is 60 seconds.
-- Supabase persists read model, observed charts, receipts, worker state and signed journals. Vercel uses HTTP polling and Node HTTP Fastify serving. Generated TypeScript ABIs avoid Vercel's JSON-import-attribute transpilation issue.
+- Neon persists read model, observed charts, receipts, worker state and signed journals. Vercel uses HTTP polling and Node HTTP Fastify serving. Generated TypeScript ABIs avoid Vercel's JSON-import-attribute transpilation issue.
 - Public RPC transport is paced; logs are fetched in at most 100-block inclusive ranges. Viem multicall batches public reads.
-- Confirmed public snapshots are served from Supabase quickly; views older than 15 seconds pause new exposure. Independent frontend connection and onchain oracle checks remain enforced. API degradation does not fabricate prices or receipts.
+- Confirmed public snapshots are served from Neon quickly; views older than 15 seconds pause new exposure. Independent frontend connection and onchain oracle checks remain enforced. API degradation does not fabricate prices or receipts.
 - Public disconnected portfolio no longer impersonates a local demo account. Public order/writing defaults are small quantities; strike precision and actual Pyth chart labels are preserved.
 
 ## Local environments to preserve
@@ -31,9 +31,9 @@ Controlled local fork: terminal5173, API3001, RPC8546, chain31337,64 instruments
 
 ## Validation
 
-Final validation: 117 unit/service tests,31 contract tests, one explicit external Kuru fork skip, TypeScript and frontend build passed. All 23 local browser regression cases passed in 6.7 minutes (`.runtime/final-browser.log`); the workspace/dialog/mobile case also passed after the final UI polish (`.runtime/final-ui-polish.log`). The earlier run passed22 and failed one oracle fixture, then the corrected fixture's focused two cases passed. Fixtures test interfaces and wallet behavior; public signed Pyth checks supply separate authentic evidence.
+Original deployment validation: 117 unit/service tests,31 contract tests, one explicit external Kuru fork skip, TypeScript and frontend build passed. All 23 local browser regression cases passed in 6.7 minutes (`.runtime/final-browser.log`); the workspace/dialog/mobile case also passed after the final UI polish (`.runtime/final-ui-polish.log`). The earlier run passed22 and failed one oracle fixture, then the corrected fixture's focused two cases passed. Fixtures test interfaces and wallet behavior; public signed Pyth checks supply separate authentic evidence.
 
-Public purchase/payout and desktop/mobile rendering passed. No public wallet extension was attached in the preview, so a presenter still connects their wallet. CLI success is not a particular wallet-extension test. User visual design acceptance has not been assumed. The weekly public shelf expires16 October2026; later presentations require new series while retaining old exit routes.
+Public purchase/payout and desktop/mobile rendering passed. No public wallet extension was attached in the preview, so a presenter still connects their wallet. CLI success is not a particular wallet-extension test. User visual design acceptance has not been assumed. The October30 renewal now covers the judging window. Old contracts remain listed for exits and claims.
 
 ## Operations
 
@@ -182,9 +182,21 @@ HTTP calls; state no longer uses its restricted REST API. Keep the scheduler
 paused during operator deployment, then restore it and verify autonomous passes.
 
 All112 transactions for28 October30 contracts are confirmed in the immutable
-judging-window plan/journal. Post-deployment configuration checks, manifest
-publication, source verification and liquidity checks are in progress. The new
+judging-window plan/journal. Configuration checks, manifest publication and all28
+exact Sourcify matches passed. All24 currently open fresh books have funded bids
+and asks. The four fresh QQQ/TSLA books wait for their sessions; missing-depth
+priority will handle them when open. The new
 maker profile is `.runtime/testnet/judging-window/maker-config.json`, with total
 written limit650 (was500) so old and new funded books can coexist. Other risk
 bounds and per-book allocations are preserved. Do not rerun a recorded
 `scripts/verify-judging-depth.ts` trade after its result exists.
+
+
+The 0.1-contract new MON spread verification delivered exact claims; public
+receipt registration returned HTTP200/included at71119643, hash
+`0x76c3684799fe821b204bf87b15aa7ca4751d6e31a154c8dacf287e87622acb75`.
+An exact2.5-MON keeper-to-maker transfer funded the final books. Both operations
+have completion records and must not be repeated. Public request async contexts
+cannot acquire, renew, release or borrow a worker lease, even when served in the
+same process.166 tests and TypeScript passed. Final schedule/readiness evidence
+is retained in `.runtime/testnet/judging-window/final-readiness.json` once checked.

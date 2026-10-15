@@ -185,10 +185,60 @@ async function wrapForCalls(manifest: Manifest) {
   }
 }
 
+async function rebalanceGas(manifest: Manifest) {
+  const recordPath = `${directory}/maker-gas.json`;
+  if (existsSync(recordPath))
+    throw new Error("The judging-window gas transfer is already recorded");
+  const amount = parseEther("2.5");
+  if (
+    (await client.getBalance({ address: manifest.deployer })) <
+    amount + parseEther("2.02")
+  )
+    throw new Error(
+      "Keeper must retain two MON after the maker gas allocation",
+    );
+  const signer = configuredSigner(
+    "deployer",
+    client,
+    monadTestnet,
+    manifest.rpcUrl,
+    `${directory}/signers`,
+    async (intent) => {
+      await cloud.assertWorkerLease();
+      if (
+        intent.to?.toLowerCase() !== manifest.maker.toLowerCase() ||
+        intent.data !== "0x" ||
+        intent.value !== amount
+      )
+        throw new Error("Only the exact maker gas allocation is authorized");
+    },
+    { journal: cloud.cloudSignerJournal(10143, manifest.deployer) },
+  );
+  try {
+    const hash = await signer.send({
+      id: `judging-window-v1/${manifest.engine}/maker-gas-2.5`,
+      to: manifest.maker,
+      data: "0x",
+      value: amount,
+    });
+    writeDeploymentJson(recordPath, {
+      hash,
+      amount: amount.toString(),
+      keeper: manifest.deployer,
+      maker: manifest.maker,
+    });
+    console.log(JSON.stringify({ rebalancedMON: 2.5, hash }));
+  } finally {
+    signer.close();
+  }
+}
+
 async function main() {
   const mode = process.argv[2];
-  if (!["proposal", "prepare", "execute", "fund", "deploy"].includes(mode))
-    throw new Error("Use proposal|prepare|execute|fund|deploy");
+  if (
+    !["proposal", "prepare", "execute", "fund", "deploy", "gas"].includes(mode)
+  )
+    throw new Error("Use proposal|prepare|execute|fund|deploy|gas");
   if ((await client.getChainId()) !== 10143)
     throw new Error("Renewal requires Monad testnet");
   if (mode !== "proposal" && !(await cloud.claimWorker(randomUUID())))
@@ -196,6 +246,7 @@ async function main() {
   try {
     const current = parseDeploymentManifest(readFileSync(manifestPath, "utf8"));
     if (mode === "fund") return await wrapForCalls(current);
+    if (mode === "gas") return await rebalanceGas(current);
     if (mode !== "execute" && !(mode === "deploy" && existsSync(planPath))) {
       if (mode === "prepare" && existsSync(planPath))
         throw new Error(

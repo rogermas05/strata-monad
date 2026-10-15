@@ -23,6 +23,33 @@ it("keeps Neon as the sole signing authority when it is configured, including on
   expect(fetch).not.toHaveBeenCalled();
 });
 
+it("does not lend the worker lease to concurrent public read requests", async () => {
+  vi.stubEnv("STRATA_SUPABASE_URL", "https://state.example");
+  vi.stubEnv("STRATA_SUPABASE_SERVICE_KEY", "test-only");
+  const fetch = vi.fn(async () => new Response("true"));
+  vi.stubGlobal("fetch", fetch);
+  const cloud = await import("./cloud-store.ts");
+  expect(await cloud.claimWorker("00000000-0000-4000-8000-000000000001")).toBe(
+    true,
+  );
+  await cloud.withReadOnlyState(async () => {
+    await Promise.resolve();
+    expect(cloud.hasWorkerLease()).toBe(false);
+    await expect(cloud.assertWorkerLease()).rejects.toThrow(
+      "Read-only request",
+    );
+    await expect(cloud.claimWorker("another")).rejects.toThrow(
+      "Read-only request",
+    );
+    await expect(cloud.releaseWorker()).rejects.toThrow("Read-only request");
+  });
+  expect(cloud.hasWorkerLease()).toBe(true);
+  expect(fetch).toHaveBeenCalledTimes(1);
+  await cloud.assertWorkerLease();
+  await cloud.releaseWorker();
+  expect(cloud.hasWorkerLease()).toBe(false);
+});
+
 it("only downloads changed large state and never reuses a deleted or superseded snapshot", async () => {
   vi.stubEnv("STRATA_SUPABASE_URL", "https://state.example");
   vi.stubEnv("STRATA_SUPABASE_SERVICE_KEY", "test-only");

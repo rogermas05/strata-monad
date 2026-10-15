@@ -7,6 +7,7 @@ import {
   releaseWorker,
   saveCloudState,
   requestTradingWake,
+  withReadOnlyState,
 } from "../apps/api/src/cloud-store.ts";
 import { redactDiagnostic } from "../packages/core/src/deployment-config.ts";
 import { maintainIdleDemo } from "../apps/api/src/idle-maintenance.ts";
@@ -318,44 +319,46 @@ export default async function handler(request: any, response: any) {
     }
     if (path === "/api/live")
       return response.status(404).json({ error: "Use HTTP polling" });
-    const { app } = await initialize();
-    await app.ready();
-    let payload: Buffer | undefined;
-    if (request.body !== undefined)
-      payload = Buffer.from(
-        typeof request.body === "string"
-          ? request.body
-          : JSON.stringify(request.body),
-      );
-    else if (request.method !== "GET" && request.method !== "HEAD") {
-      const chunks: Buffer[] = [];
-      let size = 0;
-      for await (const chunk of request) {
-        size += chunk.length;
-        if (size > 160000)
-          return response
-            .status(413)
-            .json({ error: "Request exceeds the supported size." });
-        chunks.push(Buffer.from(chunk));
+    await withReadOnlyState(async () => {
+      const { app } = await initialize();
+      await app.ready();
+      let payload: Buffer | undefined;
+      if (request.body !== undefined)
+        payload = Buffer.from(
+          typeof request.body === "string"
+            ? request.body
+            : JSON.stringify(request.body),
+        );
+      else if (request.method !== "GET" && request.method !== "HEAD") {
+        const chunks: Buffer[] = [];
+        let size = 0;
+        for await (const chunk of request) {
+          size += chunk.length;
+          if (size > 160000)
+            return response
+              .status(413)
+              .json({ error: "Request exceeds the supported size." });
+          chunks.push(Buffer.from(chunk));
+        }
+        payload = Buffer.concat(chunks);
       }
-      payload = Buffer.concat(chunks);
-    }
-    // Serve through Node HTTP; Fastify inject() is a test facility whose cookie
-    // dependency is incompatible with Vercel's ESM loader.
-    const incoming = forwardedRequest(
-      request,
-      path + (route ? "" : url.search),
-      payload,
-    );
-    // Public routes reject customer/server signing. Their reads and receipt
-    // checks must not wait behind a full keeper/maker pass. Snapshot builds
-    // already coalesce, and SQLite writes complete without yielding.
-    await new Promise<void>((resolve, reject) => {
-      response.once("finish", resolve);
-      response.once("close", resolve);
-      response.once("error", reject);
-      incoming.once("error", reject);
-      app.server.emit("request", incoming, response);
+      // Serve through Node HTTP; Fastify inject() is a test facility whose cookie
+      // dependency is incompatible with Vercel's ESM loader.
+      const incoming = forwardedRequest(
+        request,
+        path + (route ? "" : url.search),
+        payload,
+      );
+      // Public routes reject customer/server signing. Their reads and receipt
+      // checks must not wait behind a full keeper/maker pass. Snapshot builds
+      // already coalesce, and SQLite writes complete without yielding.
+      await new Promise<void>((resolve, reject) => {
+        response.once("finish", resolve);
+        response.once("close", resolve);
+        response.once("error", reject);
+        incoming.once("error", reject);
+        app.server.emit("request", incoming, response);
+      });
     });
   } catch (error) {
     console.error(
