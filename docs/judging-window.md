@@ -1,5 +1,27 @@
 # Two-week judging window
 
+Gas correction, 15 October UTC: the ten-minute global wake loop has been removed.
+**Enable trading** requests one pass for the selected book (up to four explicit
+strategy legs). Only their assets' signed prices are relayed. The request is
+consumed before any signing, so cron retries cannot keep spending. Requested
+maker passes no longer cancel unrelated stale books; automatic House quoting,
+shelf rotation and expired-maker cleanup are excluded from a trading request.
+Display prices and expiry/vault lifecycle maintenance remain scheduled.
+
+Each role's hosted signer now reserves the complete signed transaction's maximum
+native cost against a durable **0.3 MON per UTC day** ceiling, including gas and
+Pyth fees. Reservations survive cold starts and are idempotent by signed hash.
+They are conservative and are not refunded for unused gas. A 0.25 MON balance
+floor also applies. Rejected requests never become pending signed jobs. A budget
+pause appears in the UI and resets at 00:00 UTC; existing funded books with fresh
+prices remain tradable, but maintenance may pause at the ceiling.
+
+At the start of this correction the keeper held **6.923440298 MON**, and the maker
+held **7.024557592 MON**, including the latest five-MON top-ups to each. Fifteen
+UTC daily allowances cost at most 4.5 MON per role, below these balances. Daily
+faucet funding is not the operating plan. The earlier 16/4 refill recommendation
+below is superseded. Do not repeat deployment or initial funding operations.
+
 Current status,15 October UTC: the live site uses Neon Free for state. All28 new
 October30 contracts are deployed and verified; all24 currently open fresh books
 have funded bids and asks. Four new QQQ/TSLA books are session-closed and receive

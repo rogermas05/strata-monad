@@ -268,6 +268,7 @@ export interface Snapshot {
     mode: "display" | "trading";
     awakeUntil: number;
     gasLow: boolean;
+    budgetPausedUntil?: number;
   };
   indexer: {
     lastBlock: string;

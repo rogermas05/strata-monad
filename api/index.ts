@@ -12,18 +12,21 @@ import {
 import { redactDiagnostic } from "../packages/core/src/deployment-config.ts";
 import { maintainIdleDemo } from "../apps/api/src/idle-maintenance.ts";
 import { reuseIdlePass } from "../apps/api/src/cloud-retention.ts";
-import { nextMakerMarket } from "../apps/api/src/maker-rotation.ts";
+import {
+  pendingTradingDemand,
+  requestedMarkets,
+  TRADING_REQUEST_MS,
+  TRADING_COOLDOWN_MS,
+  type TradingDemand,
+} from "../apps/api/src/trading-demand.ts";
 
 process.env.STRATA_SERVERLESS = "1";
-/** On-chain trading stays awake this long after the last wake request. */
-const AWAKE_MS = 10 * 60 * 1000;
-/** Repeated wake requests inside this window are not rewritten. */
-const WAKE_DEBOUNCE_MS = 60 * 1000;
 /** Below this keeper balance the worker cannot relay prices, so it stays asleep. */
 const KEEPER_MIN_WEI = 50_000_000_000_000_000n;
 const IDLE_MAINTENANCE_MS = 30_000;
-type Wake = { at: number };
-const awakeUntil = (wake: Wake | undefined) => (wake ? wake.at + AWAKE_MS : 0);
+type Wake = TradingDemand;
+const awakeUntil = (wake: Wake | undefined) =>
+  wake ? wake.at + TRADING_REQUEST_MS : 0;
 process.env.STRATA_RUNTIME_DIRECTORY = `/tmp/strata-${process.pid}`;
 let application:
   Promise<typeof import("../apps/api/src/server.ts")> | undefined;
@@ -113,14 +116,21 @@ export default async function handler(request: any, response: any) {
             localCheckpoint: null,
           });
         }
-        const wake = await loadCloudState<Wake>("trading-wake");
+        const [wake, completedAt, gasPause] = await Promise.all([
+          loadCloudState<Wake>("trading-wake"),
+          loadCloudState<number>("trading-completed-at"),
+          loadCloudState<{ until: number }>("worker-gas-pause"),
+        ]);
         return response.status(200).json({
           ...saved,
           service,
           trading: {
             mode: worker?.mode ?? "trading",
-            awakeUntil: awakeUntil(wake),
+            awakeUntil: pendingTradingDemand(wake, completedAt ?? 0)
+              ? awakeUntil(wake)
+              : 0,
             gasLow: worker?.gasLow ?? false,
+            budgetPausedUntil: gasPause?.until ?? 0,
           },
           maker: {
             ...saved.maker,
@@ -138,20 +148,53 @@ export default async function handler(request: any, response: any) {
     if (path === "/api/wake") {
       if (request.method !== "POST")
         return response.status(405).json({ error: "Use POST" });
+      const gasPause = await loadCloudState<{ until: number }>(
+        "worker-gas-pause",
+      );
+      if (gasPause && gasPause.until > Date.now())
+        return response
+          .status(429)
+          .json({
+            error:
+              "Daily demo maintenance budget reached. It resets at 00:00 UTC; funded markets with fresh prices remain tradable.",
+          });
       const wake = await loadCloudState<Wake>("trading-wake");
-      if (!wake || Date.now() - wake.at > WAKE_DEBOUNCE_MS)
-        await requestTradingWake();
+      const manifest = await loadCloudState<{
+        series: { id: number; expiry: number }[];
+      }>("public-manifest");
+      let marketIds: number[];
+      try {
+        const body =
+          typeof request.body === "string"
+            ? JSON.parse(request.body)
+            : request.body;
+        marketIds = requestedMarkets(body, manifest?.series ?? []);
+      } catch {
+        return response
+          .status(400)
+          .json({ error: "Choose one to four unexpired markets" });
+      }
+      if (wake && Date.now() - wake.at < TRADING_COOLDOWN_MS)
+        return response.status(429).json({
+          error: "A market refresh was just requested. Try again shortly.",
+        });
+      const at = Date.now();
+      await requestTradingWake(at, marketIds);
       return response
         .status(202)
-        .json({ awakeUntil: awakeUntil({ at: Date.now() }) });
+        .json({ awakeUntil: awakeUntil({ at, marketIds }) });
     }
     if (path === "/api/worker") {
       if (!(await claimWorker(randomUUID())))
         return response.status(202).json({ status: "already-running" });
+      let consumedDemand: Wake | undefined;
       try {
         const wake = await loadCloudState<Wake>("trading-wake");
+        const consumedAt =
+          (await loadCloudState<number>("trading-consumed-at")) ?? 0;
+        const pending = pendingTradingDemand(wake, consumedAt);
         const previous = await loadCloudState<any>("worker-health");
-        if (reuseIdlePass(Date.now(), awakeUntil(wake), previous))
+        if (reuseIdlePass(Date.now(), pending ? awakeUntil(wake) : 0, previous))
           return response
             .status(200)
             .json({ status: "complete", mode: "cached-display" });
@@ -169,7 +212,7 @@ export default async function handler(request: any, response: any) {
           address: runtime.manifest.deployer,
         });
         const gasLow = keeperBalance < KEEPER_MIN_WEI;
-        if (gasLow || Date.now() >= awakeUntil(wake)) {
+        if (gasLow || !pending) {
           // Display pass: real off-chain Pyth prices for charts and marks,
           // chain reads for books and balances. Expiry/vault maintenance stays
           // active without paying to relay prices or replenish trading quotes.
@@ -224,67 +267,26 @@ export default async function handler(request: any, response: any) {
         }
         await runtime.serialized(async () => {
           step("start");
+          // Consume before signing: a timeout or failed pass must not start an
+          // unbounded retry loop on the next five-second cron tick.
+          consumedDemand = wake!;
+          await saveCloudState("trading-consumed-at", wake!.at);
           await runtime.reloadCloudReadModel();
-          const { runPythPass } =
+          const { refreshLivePrices } =
             await import("../apps/api/src/pyth-keeper.ts");
-          await runPythPass();
+          const requested = runtime.manifest.series.filter((s) =>
+            wake!.marketIds.includes(s.id),
+          );
+          const assetKeys = [...new Set(requested.map((s) => s.asset))];
+          await refreshLivePrices(assetKeys);
           step("prices");
-          const snap = await runtime.refresh();
           const { runMakerCycle } =
             await import("../apps/api/src/maker-worker.ts");
-          const cursor = (await loadCloudState<number>("maker-cursor")) ?? 0;
-          const chosen = nextMakerMarket(snap, cursor);
-          await runMakerCycle({ marketIds: chosen ? [chosen.id] : [] });
-          await saveCloudState("maker-cursor", cursor + 1);
+          await runMakerCycle({ marketIds: requested.map((s) => s.id) });
           step("maker");
-          if (runtime.manifest.house) {
-            // One vault book per pass, after any launch or roll. A vault failure
-            // must not stop the project maker's pass from being published.
-            const { runHouseCycle } =
-              await import("../apps/api/src/house-worker.ts");
-            const house = (await runtime.refresh()).house;
-            const live = (house?.series ?? []).filter((id) =>
-              snap.markets.some((m) => m.id === id && m.active && m.healthy),
-            );
-            const houseCursor =
-              (await loadCloudState<number>("house-cursor")) ?? 0;
-            try {
-              await runHouseCycle({
-                marketIds: live.length
-                  ? [live[houseCursor % live.length]]
-                  : undefined,
-              });
-            } catch (error) {
-              runtime.recordWorkerError(
-                `House: ${error instanceof Error ? error.message : String(error)}`,
-              );
-            }
-            await saveCloudState("house-cursor", houseCursor + 1);
-            step("house");
-          }
           // Funding a new book can take most of the immutable price window.
           // Refresh signed prices again before publishing the completed pass.
-          await runPythPass();
-          const { cleanupExpiredMaker } =
-            await import("../packages/core/src/expiry-cleanup.ts");
-          const fresh = await runtime.refresh();
-          for (const m of fresh.markets
-            .filter((m) => !m.active && m.settlementPrice)
-            .slice(0, 2))
-            await cleanupExpiredMaker(
-              runtime.client,
-              runtime.manifest,
-              runtime.manifest.series.find((s) => s.id === m.id)!,
-              m.orders
-                .filter(
-                  (o) =>
-                    o.owner.toLowerCase() ===
-                    runtime.manifest.maker.toLowerCase(),
-                )
-                .map((o) => BigInt(o.id)),
-              (address, abi, name, args) =>
-                runtime.send(runtime.manifest.maker, address, abi, name, args),
-            );
+          await refreshLivePrices(assetKeys);
           await runtime.refresh();
           await runtime.persistCloudReadModel();
           step("persisted");
@@ -314,7 +316,12 @@ export default async function handler(request: any, response: any) {
         });
         throw error;
       } finally {
-        await releaseWorker();
+        try {
+          if (consumedDemand)
+            await saveCloudState("trading-completed-at", consumedDemand.at);
+        } finally {
+          await releaseWorker();
+        }
       }
     }
     if (path === "/api/live")

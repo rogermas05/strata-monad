@@ -68,6 +68,12 @@ export interface ManagedSignerOptions {
   /** Mandatory deployment/role-specific authorization, rerun before submission. */
   authorize: (intent: SignerIntent) => Promise<void>;
   journal?: SignerJournal;
+  /** Durable cumulative spending guard, run for new and recovered broadcasts. */
+  reserveCost?: (
+    intentId: string,
+    maximumCost: bigint,
+    balance: bigint,
+  ) => Promise<void>;
 }
 
 /** Backend-only local signing. The journal contains signed transactions, never signing keys. */
@@ -351,6 +357,9 @@ export class ManagedSigner {
       block: null,
       block_hash: null,
     };
+    // Reject a new over-budget job before making it durable. Otherwise an
+    // unbroadcast prepared job could occupy the sender's queue until tomorrow.
+    await o.reserveCost?.(job.hash, cost, balance);
     await this.verifyJob(job);
     // Durable signed intent precedes the first broadcast, including an ambiguous RPC failure.
     this.db
@@ -406,6 +415,14 @@ export class ManagedSigner {
           throw error;
       }
       if (!known) {
+        if (o.reserveCost) {
+          const tx = parseTransaction(job.raw);
+          await o.reserveCost(
+            job.hash,
+            (tx.gas ?? 0n) * (tx.maxFeePerGas ?? 0n) + (tx.value ?? 0n),
+            await o.client.getBalance({ address: this.address }),
+          );
+        }
         await o.authorize({
           id: job.id,
           to: job.target ?? undefined,

@@ -216,11 +216,19 @@ export async function runMakerCycle({
   let snapshot = await refresh();
   if (!snapshot.service.newExposureAllowed) {
     // Readable oracle failure: remove executable external quotes, even if update scheduling is paused.
-    await drainMakerQuotes(snapshot);
+    await drainMakerQuotes(
+      marketIds
+        ? {
+            ...snapshot,
+            markets: snapshot.markets.filter((m) => marketIds.includes(m.id)),
+          }
+        : snapshot,
+    );
     return refresh();
   }
   // A closed session would leave resting quotes exposed to the next open.
   for (const market of snapshot.markets) {
+    if (marketIds && !marketIds.includes(market.id)) continue;
     if (!market.active || market.healthy) continue;
     const orders = ownOrders(market);
     if (orders.length) await cancelMakerMarket(market, orders, false);

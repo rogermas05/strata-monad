@@ -254,13 +254,17 @@ export async function runPythKeeper(
 export async function relayLivePrices(
   sourceFor: (asset: ManifestAsset) => UpdateSource,
   access?: Access,
+  assetKeys?: string[],
 ) {
   const updates: `0x${string}`[] = [];
   let verifier: Address | undefined;
   const pushed = new Set(
     (process.env.PYTH_PUSHED_FEEDS ?? "").split(",").map((key) => key.trim()),
   );
-  const feeds = manifestAssets(manifest)
+  const assets = manifestAssets(manifest).filter(
+    (asset) => !assetKeys || assetKeys.includes(asset.key),
+  );
+  const feeds = assets
     .filter((asset) => !pushed.has(asset.key))
     .map((asset) => asset.assetId);
   let batch: Awaited<ReturnType<typeof fetchUpdates>> | undefined;
@@ -271,7 +275,7 @@ export async function relayLivePrices(
       // Attribute failures per feed through the existing source/backup path.
     }
   }
-  for (const asset of manifestAssets(manifest))
+  for (const asset of assets)
     try {
       verifier ??= (await chain.read(
         asset.adapter,
@@ -380,12 +384,12 @@ export async function refreshDisplayPrices() {
     ),
   );
 }
-export async function refreshLivePrices() {
+export async function refreshLivePrices(assetKeys?: string[]) {
   const access = {
     endpoint: process.env.HERMES_URL ?? "https://pyth.dourolabs.app/hermes",
     apiKey: process.env.PYTH_API_KEY ?? "",
   };
-  await relayLivePrices(updateSources(access), access);
+  await relayLivePrices(updateSources(access), access, assetKeys);
 }
 
 export async function runPythPass() {

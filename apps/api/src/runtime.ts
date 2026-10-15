@@ -38,6 +38,7 @@ import {
 } from "viem";
 import { configuredSigner } from "../../../scripts/lib/public-signer.ts";
 import { workerAuthorizer } from "./worker-policy.ts";
+import { reserveWorkerGas } from "./worker-gas-budget.ts";
 import {
   cloudEnabled,
   loadCloudState,
@@ -298,7 +299,16 @@ async function workerSigner(account: Address) {
       },
       {
         ...(cloudEnabled
-          ? { journal: cloudSignerJournal(manifest.chainId, account) }
+          ? {
+              journal: cloudSignerJournal(manifest.chainId, account),
+              reserveCost: (id: string, cost: bigint, balance: bigint) =>
+                reserveWorkerGas(
+                  `${manifest.chainId}:${account}`,
+                  id,
+                  cost,
+                  balance,
+                ),
+            }
           : {}),
         receiptTimeout: 45000,
       },
@@ -423,7 +433,7 @@ export async function send(
         )
       ) {
         const { refreshLivePrices } = await import("./pyth-keeper.ts");
-        await refreshLivePrices();
+        await refreshLivePrices(assets.map((asset) => asset.key));
         block = await client.getBlock();
       }
     }

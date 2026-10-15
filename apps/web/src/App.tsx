@@ -270,19 +270,22 @@ export function App() {
   // others already push on-chain stay tradable regardless.
   const sleeping =
     !!snapshot?.trading &&
-    snapshot.trading.mode === "display" &&
-    (!snapshot.service.newExposureAllowed ||
-      snapshot.markets.some(
-        (m) => m.active && !m.healthy && snapshot.underlyings[m.asset]?.open,
-      ));
+    ((snapshot.trading.budgetPausedUntil ?? 0) > Date.now() ||
+      (snapshot.trading.mode === "display" &&
+        (!snapshot.service.newExposureAllowed ||
+          snapshot.markets.some(
+            (m) =>
+              m.active && !m.healthy && snapshot.underlyings[m.asset]?.open,
+          ))));
   const waking =
     !!snapshot?.trading && snapshot.trading.awakeUntil > Date.now();
-  async function wake() {
+  async function wake(marketIds?: number[]) {
     try {
-      await api.wake();
+      await api.wake(marketIds ?? [selected.id]);
       await qc.invalidateQueries({ queryKey: ["snapshot"] });
       setToast({
-        message: "Waking on-chain trading. Orders open in about 20 seconds.",
+        message:
+          "Refreshing this market's on-chain price and quotes. Try again shortly.",
       });
     } catch (e) {
       setToast({
@@ -310,10 +313,11 @@ export function App() {
     );
     if (
       requiresLiveMarket(action.action) &&
-      (!snapshot?.service.newExposureAllowed || (sleeping && stale))
+      (!snapshot?.service.newExposureAllowed || stale)
     ) {
-      if (sleeping && !snapshot!.trading!.gasLow) {
-        if (!waking) await wake();
+      if (snapshot?.trading && !snapshot.trading.gasLow) {
+        if (!waking)
+          await wake(touched.filter((id): id is number => id !== undefined));
         else
           setToast({
             message:
@@ -543,15 +547,19 @@ export function App() {
             <div className="service-notice trading-notice" role="status">
               <Zap size={15} />
               <span>
-                {snapshot.trading!.gasLow
-                  ? "Live prices from Pyth. On-chain trading is paused: the demo's testnet gas wallet is empty."
-                  : waking
-                    ? "Waking on-chain trading: relaying signed prices and refreshing books, usually about 20 seconds."
-                    : "Live prices from Pyth. Some markets sleep to save testnet gas; enabling trading relays their on-chain prices."}
+                {(snapshot.trading!.budgetPausedUntil ?? 0) > Date.now()
+                  ? "Daily demo maintenance budget reached. It resets at 00:00 UTC; funded markets with fresh prices remain tradable."
+                  : snapshot.trading!.gasLow
+                    ? "Live prices from Pyth. On-chain trading is paused: the demo's testnet gas wallet is empty."
+                    : waking
+                      ? "Refreshing the requested market's on-chain price and quotes. Try again shortly."
+                      : "Live prices from Pyth. Enable trading to refresh this market's on-chain price and quotes."}
               </span>
-              {!snapshot.trading!.gasLow && !waking && (
-                <button onClick={() => void wake()}>Enable trading</button>
-              )}
+              {!snapshot.trading!.gasLow &&
+                !waking &&
+                (snapshot.trading!.budgetPausedUntil ?? 0) <= Date.now() && (
+                  <button onClick={() => void wake()}>Enable trading</button>
+                )}
             </div>
           ) : (
             !snapshot.service.newExposureAllowed && (

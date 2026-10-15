@@ -105,6 +105,31 @@ function fixture() {
     },
   };
 }
+it("rejects cumulative spending before journaling or broadcasting and rechecks recovered broadcasts", async () => {
+  const f = fixture();
+  let blocked = true;
+  let reservations = 0;
+  const signer = new ManagedSigner({
+    ...f.options,
+    reserveCost: async (_id, cost) => {
+      reservations++;
+      expect(cost).toBeGreaterThan(0n);
+      if (blocked) throw new Error("Daily gas budget reached");
+    },
+  });
+  try {
+    await expect(signer.send(f.intent)).rejects.toThrow("budget");
+    expect(f.state.raws).toHaveLength(0);
+    blocked = false;
+    await signer.send({ ...f.intent, id: "new-request" });
+    expect(f.state.raws).toHaveLength(1);
+    expect(reservations).toBe(3); // rejected, preparation, immediate pre-broadcast
+  } finally {
+    signer.close();
+    f.cleanup();
+  }
+});
+
 it("persists the signed envelope in cloud storage before broadcast and recovers on a fresh machine", async () => {
   const f = fixture();
   const jobs = new Map<string, SignerJob>();

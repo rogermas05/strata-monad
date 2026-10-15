@@ -174,10 +174,13 @@ export function cloudSignerJournal(
 }
 
 /** A visitor asked for on-chain trading. Public, so it needs no worker lease. */
-export async function requestTradingWake(at = Date.now()) {
+export async function requestTradingWake(
+  at = Date.now(),
+  marketIds: number[] = [],
+) {
   await cloudRequest("strata_state", "POST", {
     id: "trading-wake",
-    value: { at },
+    value: { at, marketIds },
     updated_at: new Date(at).toISOString(),
   });
 }

@@ -2,6 +2,16 @@
 
 Updated 15 October 2026 UTC. Workspace `/Users/rogermas/.t3/projects/metropolis`.
 
+Gas correction: public wakes now request a single pass for one to four explicit
+books, consumed before signing; they no longer open a ten-minute global relay
+and maker loop. Relays and maker cancellation are scoped to requested assets and
+books. The hosted signers enforce durable worst-case daily spending reservations
+of 0.3 MON per role, plus a 0.25 MON floor. Budget-limited maintenance pauses until
+00:00 UTC. Do not ask for daily funding or rerun shelf deployment. Latest starting
+balances for this fix were 6.923440298 keeper / 7.024557592 maker MON. See the top
+of [judging-window operations](judging-window.md); older funding advice below is
+historical and superseded.
+
 The user authorized fixing issues and deploying the full demo on Monad testnet, with Vercel and Supabase. Public credentials and funded accounts were supplied through ignored backend configuration. Do not ask again for deployment authorization. Never print secrets. Do not spawn agents unless separately authorized. Most source was already untracked; preserve it. No commit or PR was created during this deployment.
 
 ## Current deployment

@@ -16,7 +16,9 @@ export function configuredSigner(
   endpoint: string,
   directory: string,
   authorize: ManagedSignerOptions["authorize"],
-  extra: Partial<Pick<ManagedSignerOptions, "journal" | "receiptTimeout">> = {},
+  extra: Partial<
+    Pick<ManagedSignerOptions, "journal" | "receiptTimeout" | "reserveCost">
+  > = {},
 ) {
   const prefix = `STRATA_${role.toUpperCase()}`;
   const key = process.env[`${prefix}_PRIVATE_KEY`];
