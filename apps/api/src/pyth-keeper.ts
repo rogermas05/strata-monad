@@ -397,3 +397,12 @@ export async function runPythPass() {
   await relayLivePrices(sources, access);
   await runPythKeeper(access, sources);
 }
+
+/** Expiry maintenance while trading sleeps; does not relay live prices. */
+export async function runSettlementPass() {
+  const access = {
+    endpoint: process.env.HERMES_URL ?? "https://pyth.dourolabs.app/hermes",
+    apiKey: process.env.PYTH_API_KEY ?? "",
+  };
+  await runPythKeeper(access, updateSources(access));
+}

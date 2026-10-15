@@ -86,3 +86,105 @@ The deployment also fixed a hosted outage: the keeper had run out of gas, and af
 - Core: `points.ts`, `merkle.ts`, `house-epoch.ts`, `house-actions.ts`. API: `house.ts` (snapshot extension, account/rewards views, root publishing), `house-worker.ts` (launch, roll, quoting), routes `/api/house/:address`, `/api/rewards/:address`, local `/api/demo/house-cycle`. The worker policy admits vault/distributor calls for the maker role. Web: `House.tsx` (`/house`, `/rewards`).
 - `seed.ts` now honors `MANIFEST_PATH`; `local:up` runs `house:deploy` on fresh Kuru forks; Playwright honors `E2E_BASE_URL`.
 - Verification ran on an isolated stack (Anvil 8548, API 3011, web 5183, manifest `.runtime/house-it/manifest.json`); the default `.runtime/manifest.json` was not modified.
+
+## Two-week judge availability (13 October local / 14 October UTC)
+
+User wants the public site to work for judges over the next two weeks. They can
+obtain only 20 testnet MON per day and have already exhausted today's allowance.
+Funding is the remaining prerequisite; do not claim the full two-week live-trading
+window is secured. At the next reset, the proposed split is 16 MON keeper and
+four MON maker. Last checked balances were approximately0.0512/0.704 MON.
+
+Implemented and deployed idle expiry/vault maintenance (without live price relays
+or quote replenishment) and durable vault-log backfill checkpoints. A restart
+exposed the prior repeated historical-vault replay; completed/incremental backfill
+state now survives cold starts and resets on main-cursor reorg or a different
+vault. Final production deployment `dpl_A3XtrCyQVQUmJ6cGC3TnsJjgY1gX`,
+https://strata-xyz.vercel.app.152 tests, TypeScript and frontend build passed.
+Four final public health samples returned200/ready, no worker errors; cloud state
+confirmed complete vault backfill and advancing idle-maintenance timestamps.
+Public terminal snapshot renders live prices with no browser console errors.
+Evidence: `.runtime/testnet/judging-window/readiness-before-funding.json`.
+
+Prepared `scripts/testnet-renew-shelf.ts proposal`:28 new October30 contracts,
+112 transactions, all13 assets, MON vanilla call/put plus capped bull/bear spreads.
+The unsigned proposal lives at `.runtime/testnet/judging-window/proposal.json`;
+nonces are provisional. It has NOT been deployed, funded or source-verified.
+Current additional-asset books expireOctober16; original core assets also have
+October23 books. Top-ups alone do not renew contracts. See[judging-window.md](judging-window.md)
+for reserve assumptions and exact prepare/execute/fund/verification instructions.
+Pause cron and await its lease before signing. Current scheduler remains active.
+
+Existing local demo-price changes in runtime/workers were preserved. Default local
+chains/manifests were not reseeded. No commit or PR was created.
+
+### 14 October funding confirmed; Supabase quota blocks continuation
+
+User topped up keeper to20.051225356 MON and maker to5.174408948 MON, then asked to
+continue. No renewal transactions have been sent. Public API is currently503
+because Supabase REST returns402 `exceed_egress_quota` and instructs the owner to
+upgrade/remove a spend cap. User explicitly said they will restore Supabase access.
+They have not yet confirmed completion, and the last direct REST check still402.
+Do not claim the site is healthy or the October30 markets deployed.
+
+Data-transfer fix deployed to production at
+`dpl_8cfWHd694C4frrYA2bSQRXXNzKsG`. New `cloud-state-codec.ts` compresses only large
+snapshot/read-model state; old raw rows remain supported. `cloud-store.ts` checks
+`updated_at` before downloading cached large rows, and caches successful writes.
+Health reads compact worker metadata; idle UI polls10 seconds and active/waking
+trading polls3 seconds. Saved snapshot sample transferred75% fewer bytes.
+155 tests, TypeScript/build passed; live integration waits for restored database.
+
+`testnet-renew-shelf.ts deploy` now prepares+executes under one worker lease,
+resuming an existing immutable plan if needed. Supabase management CLI lacks an
+access token in this session, so cron pause via CLI currently fails. Do not expose
+secrets while restoring operator access. A continuous properly renewed worker
+lease can serialize the operator while scheduled workers return already-running.
+Next: verify database recovery, allow confirmed snapshots/indexing to recover,
+deploy28 contracts, wrap call backing, verify sources, publish/redeploy, fund every
+new open-session book, verify one small trade and final health/reserve balances.
+Details and limitations are in[judging-window.md](judging-window.md).
+
+
+## 15 October UTC / 14 October local: Neon cutover
+
+The user accepted Vercel Marketplace Neon terms and authorized continuing the
+free migration after Supabase's egress restriction. `strata-state` (Neon Free,
+`iad1`, project `sparkling-unit-46649760`) is connected to the Vercel backend.
+`STRATA_STATE_DATABASE_URL` is the single storage/signing authority when set;
+failed Neon requests must never fall back to the old Supabase journal.
+
+The direct Supabase connection worked despite REST HTTP402. Using the existing
+ignored database password and the official Supabase CA with hostname/certificate
+verification, the migration paused `strata-public-worker`, waited for the old
+lease to be inactive, took a consistent snapshot and copied all four data tables.
+Seven state rows,756 signed journal records,3726 oracle archives and8 transaction
+records passed count/digest verification. Private export and reports are under
+`.runtime/cloud/`; do not print them or repeat the source migration after new
+signing begins. Original engine/positions are unchanged.
+
+Backend implementation: `apps/api/sql/neon.sql`, `neon-store.ts`, cloud-store's
+Neon routing and `cloud-retention.ts`. Real Postgres/PGlite tests cover competing
+leases, stale writers, immutable signed intent fields, unique nonce/hash,
+parameterized filters, receipt/proof isolation and no fallback to Supabase.
+164 tests, TypeScript and frontend build passed. Initial production deployment
+`dpl_CZNmyLHHrpyPuoh7xNYFASuJvEPk` restored HTTP200 snapshots with13 assets and the
+House vault. Full idle passes run once a minute; a trading wake bypasses the
+throttle. Chart retention is one real observation per minute; active trading
+still uses the15-second view gate and60-second oracle gate.
+
+Operator tools load only Neon-prefixed values from ignored
+`.runtime/cloud/neon.env`, preserving the existing signer secrets. Direct schema
+migration: `scripts/neon-migrate.ts`. Read-only chain recovery under the state
+lease: `scripts/rebuild-cloud-state.ts`. Scheduler control:
+`scripts/set-worker-schedule.ts on|off`. Supabase still supplies `pg_cron`/`pg_net`
+HTTP calls; state no longer uses its restricted REST API. Keep the scheduler
+paused during operator deployment, then restore it and verify autonomous passes.
+
+All112 transactions for28 October30 contracts are confirmed in the immutable
+judging-window plan/journal. Post-deployment configuration checks, manifest
+publication, source verification and liquidity checks are in progress. The new
+maker profile is `.runtime/testnet/judging-window/maker-config.json`, with total
+written limit650 (was500) so old and new funded books can coexist. Other risk
+bounds and per-book allocations are preserved. Do not rerun a recorded
+`scripts/verify-judging-depth.ts` trade after its result exists.

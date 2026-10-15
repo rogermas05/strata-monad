@@ -12,6 +12,8 @@ Thirteen assets are listed: MON, BTC, ETH, XAU, SOL, XRP, DOGE, BNB, HYPE, QQQ, 
 
 The selector searches every listed asset and displays its actual contracts, prices and funded depth. The compact overview scrolls horizontally on larger shelves. Two expired MON instruments remain for history/exits. Future demonstrations must list a fresh shelf and preserve old claim routes. Price history contains authenticated observed prices, without invented candles or fills.
 
+Current hosting/storage and the October30 renewal are documented in [judging-window operations](judging-window.md). The sections below retain the original deployment history.
+
 ## Hosting and worker operation
 
 - Vercel project `strata-monad-demo`, scope `rogermas05s-projects`: static terminal and Node API, HTTP polling, Node 24.

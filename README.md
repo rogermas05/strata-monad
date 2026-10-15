@@ -39,7 +39,7 @@ Most onchain options venues either lock liquidity in an AMM or ask writers to po
 | **Points & STRATA**          | Vault deposits and losses paid to the house earn points. Points become STRATA, and staked STRATA earns the vault's 10% performance fee.                                          |
 | **Self-custody recovery**    | Signed delegated claims, bilateral unwinds for unresolved expiries, and one-click revocation of pending authorizations. Supports EOA, EIP-7702 and ERC-1271 wallets.             |
 | **Funded market maker**      | Black–Scholes quote ladders with inventory skew, per-series and per-expiry risk budgets, and a halt switch that cancels quotes and withdraws venue funds.                        |
-| **Verifiable deployment**    | The engine and all 27 exact-fill adapters have exact bytecode matches on [Sourcify](https://repo.sourcify.dev/10143/0x4295487dcD487f9720a6d7b0Cd9d15645cF9745C).                 |
+| **Verifiable deployment**    | The engine and all 73 exact-fill adapters have exact bytecode matches on [Sourcify](https://repo.sourcify.dev/10143/0x4295487dcD487f9720a6d7b0Cd9d15645cF9745C).                 |
 
 ## Tour
 
@@ -138,7 +138,7 @@ The Foundry suite covers lifecycle, rounding, fuzzing, signatures, the Pyth adap
 ```
 contracts/        Solidity: options engine, claim tokens, oracle adapters, Kuru adapter, router, house vault, STRATA
 packages/core/    Pricing, Greeks, maker ladders, points, house epochs, evidence parsing
-apps/api/         Fastify API, SQLite/Supabase read model, maker, keeper and house workers
+apps/api/         Fastify API, SQLite/Neon read model, maker, keeper and house workers
 apps/web/         React terminal, wallet flows, TradingView Lightweight Charts
 scripts/          Local setup and seeding, deployment packages, testnet operations, Pyth checks
 tests/            Playwright end-to-end suites

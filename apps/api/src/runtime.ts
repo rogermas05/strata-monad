@@ -1,7 +1,9 @@
 import { config as loadEnv } from "dotenv";
 import { makerConfigSchema } from "./maker-config.ts";
+import { backfillRanges, replayLogRanges } from "./index-backfill.ts";
 import { waitReceipt } from "../../../packages/core/src/receipts.ts";
 import { coalesceFresh } from "../../../packages/core/src/fresh-coalescer.ts";
+import { minutePrices, retainedSnapshot } from "./cloud-retention.ts";
 import {
   parseDeploymentManifest,
   serviceRpcUrl,
@@ -118,6 +120,8 @@ export function safeDiagnostic(value: unknown) {
     process.env.STRATA_DEPLOYER_PRIVATE_KEY ?? "",
     process.env.STRATA_MAKER_PRIVATE_KEY ?? "",
     process.env.STRATA_SUPABASE_SERVICE_KEY ?? "",
+    process.env.STRATA_STATE_DATABASE_URL ?? "",
+    process.env.STRATA_STATE_DATABASE_URL_UNPOOLED ?? "",
     process.env.STRATA_WORKER_TOKEN ?? "",
   ]);
 }
@@ -203,7 +207,9 @@ type ReadModelState = {
   cursor: unknown[][];
   transactions: unknown[][];
   charts?: Record<string, Snapshot["prices"]>;
+  houseBackfill?: { vault: string; nextBlock: number; complete: boolean };
 };
+let houseBackfill: ReadModelState["houseBackfill"];
 export async function reloadCloudReadModel() {
   if (!cloudEnabled) return;
   const state = await loadCloudState<ReadModelState>(stateKey);
@@ -233,6 +239,7 @@ export async function reloadCloudReadModel() {
     throw error;
   }
   cloudCharts = state.charts ?? {};
+  houseBackfill = state.houseBackfill;
   for (const [key, prices] of Object.entries(state.charts ?? {}))
     seedObservedPrices(key, prices);
 }
@@ -247,12 +254,13 @@ export async function persistCloudReadModel() {
     events: rows("events"),
     cursor: rows("cursor"),
     transactions: rows("transactions"),
+    houseBackfill,
     // Before the first snapshot (e.g. mid catch-up), keep the stored charts.
     charts: current()
       ? Object.fromEntries(
           Object.entries(current()!.underlyings).map(([key, value]) => [
             key,
-            value.prices,
+            minutePrices(value.prices),
           ]),
         )
       : cloudCharts,
@@ -681,49 +689,63 @@ async function indexTo(latest: bigint) {
         "UPDATE transactions SET status='unconfirmed' WHERE status='included' OR status='reverted'",
       ).run();
       cursor = undefined;
+      houseBackfill = undefined;
     }
   }
+  // A killed batched replay may have stored some ranges beyond its last
+  // canonical cursor. Discard those before resuming, including orphaned logs.
+  db.prepare("DELETE FROM events WHERE block>?").run(cursor?.block ?? -1);
   // A vault added to an existing deployment needs its earlier logs once.
-  if (manifest.house && cursor && !houseBackfilled) {
+  const vault = manifest.house?.vault.toLowerCase();
+  if (
+    manifest.house &&
+    cursor &&
+    (!houseBackfill || houseBackfill.vault !== vault || !houseBackfill.complete)
+  ) {
     const end = BigInt(cursor.block);
-    let start = BigInt(manifest.house.deployedBlock);
-    while (start <= end) {
-      const stop = start + 99n < end ? start + 99n : end;
-      await storeLogs([manifest.house.vault], start, stop);
-      start = stop + 1n;
-    }
-    houseBackfilled = true;
+    const start =
+      houseBackfill && houseBackfill.vault === vault
+        ? BigInt(houseBackfill.nextBlock)
+        : BigInt(manifest.house.deployedBlock);
+    await backfillRanges({
+      from: start,
+      to: end,
+      store: (from, to) => storeLogs([manifest.house!.vault], from, to),
+      checkpoint: async (next, complete) => {
+        houseBackfill = { vault: vault!, nextBlock: Number(next), complete };
+        if (cloudEnabled && hasWorkerLease()) await persistCloudReadModel();
+      },
+    });
   }
-  let from = BigInt(cursor ? cursor.block + 1 : manifest.deployedBlock);
-  let ranges = 0;
-  while (from <= latest) {
-    const range = manifest.chainId === 10143 ? 99n : 199n;
-    const to = from + range < latest ? from + range : latest;
-    await storeLogs(addresses, from, to, true);
-    from = to + 1n;
-    // A long catch-up can outlast one serverless pass; save progress as it goes.
-    if (
-      ++ranges % CATCH_UP_SAVE_RANGES === 0 &&
-      cloudEnabled &&
-      hasWorkerLease()
-    )
-      await persistCloudReadModel();
-  }
+  await replayLogRanges({
+    from: BigInt(cursor ? cursor.block + 1 : manifest.deployedBlock),
+    to: latest,
+    range: manifest.chainId === 10143 ? 100n : 200n,
+    fetch: (from, to) =>
+      client.getLogs({ address: addresses, fromBlock: from, toBlock: to }),
+    store: (logs, from, to, advance) =>
+      storeLogs(addresses, from, to, advance, logs),
+    checkpoint: async () => {
+      if (cloudEnabled && hasWorkerLease()) await persistCloudReadModel();
+    },
+  });
+  if (vault)
+    houseBackfill = { vault, nextBlock: Number(latest + 1n), complete: true };
 }
-/** Index ranges (100 blocks each on testnet) between catch-up saves. */
-const CATCH_UP_SAVE_RANGES = 100;
-let houseBackfilled = false;
 async function storeLogs(
   sources: Address[],
   from: bigint,
   to: bigint,
   advanceCursor = false,
+  suppliedLogs?: Awaited<ReturnType<typeof client.getLogs>>,
 ) {
-  const logs = await client.getLogs({
-    address: sources,
-    fromBlock: from,
-    toBlock: to,
-  });
+  const logs =
+    suppliedLogs ??
+    (await client.getLogs({
+      address: sources,
+      fromBlock: from,
+      toBlock: to,
+    }));
   const times = new Map<string, number>();
   for (const number of new Set(logs.map((l) => l.blockNumber!.toString()))) {
     const b = await client.getBlock({ blockNumber: BigInt(number) });
@@ -732,6 +754,9 @@ async function storeLogs(
   const insert = db.prepare(
     "INSERT OR IGNORE INTO events VALUES(?,?,?,?,?,?,?,?)",
   );
+  const cursorBlock = advanceCursor
+    ? await client.getBlock({ blockNumber: to })
+    : undefined;
   db.exec("BEGIN");
   try {
     for (const l of logs) {
@@ -757,10 +782,9 @@ async function storeLogs(
       );
     }
     if (advanceCursor) {
-      const block = await client.getBlock({ blockNumber: to });
       db.prepare("INSERT OR REPLACE INTO cursor VALUES(1,?,?)").run(
         Number(to),
-        block.hash!,
+        cursorBlock!.hash!,
       );
     }
     db.exec("COMMIT");
@@ -891,8 +915,13 @@ export const refresh: () => Promise<Snapshot> = coalesceFresh(async () => {
     await buildSnapshot();
     lastSuccessfulRefreshAt = Date.now();
     refreshFailed = false;
-    if (cloudEnabled && hasWorkerLease())
-      await saveCloudState("public-snapshot", current()!);
+    if (cloudEnabled && hasWorkerLease()) {
+      await saveCloudState("public-snapshot", retainedSnapshot(current()!));
+      await saveCloudState("public-health", {
+        service: current()!.service,
+        chainId: manifest.chainId,
+      });
+    }
     return current()!;
   } catch (error) {
     refreshFailed = true;
@@ -940,40 +969,43 @@ async function buildSnapshot(): Promise<Snapshot> {
       live: boolean;
     }
   >();
-  for (const asset of assets) {
-    const previous = snapshot?.underlyings?.[asset.key];
-    let raw = BigInt(Math.round((previous?.spot ?? 0) * 1e8)),
-      at = BigInt(previous?.publishedAt ?? 0),
-      valid = false;
-    try {
-      // The adapter keeps the last price readable after a session closes; the
-      // router reports it as unavailable, which is what gates new exposure.
-      [raw, at] = (await client.readContract({
-        address: asset.adapter,
-        abi: oracleAbi,
-        functionName: "livePrice",
-        args: [asset.assetId],
-        blockNumber: block.number,
-      })) as [bigint, bigint];
-      valid = raw > 0n && at > 0n && at <= block.timestamp;
-    } catch {
-      // Keep contract custody and fixed expiry claims readable during an oracle outage.
-    }
-    const age = timestamp - Number(at);
-    const display = displayPrices.get(asset.key);
-    const shown = display && display.publishedAt > Number(at) ? display : null;
-    quotes.set(asset.key, {
-      spot: shown?.price ?? Number(raw) / 1e8,
-      published: Number(at),
-      shownAt: shown?.publishedAt ?? Number(at),
-      valid,
-      // A reference recorded outside the session never opens the market.
-      live:
-        valid &&
-        age <= Math.min(maxPriceAge, asset.maxLiveAge) &&
-        assetSessionOpen(asset, timestamp),
-    });
-  }
+  await Promise.all(
+    assets.map(async (asset) => {
+      const previous = snapshot?.underlyings?.[asset.key];
+      let raw = BigInt(Math.round((previous?.spot ?? 0) * 1e8)),
+        at = BigInt(previous?.publishedAt ?? 0),
+        valid = false;
+      try {
+        // The adapter keeps the last price readable after a session closes; the
+        // router reports it as unavailable, which is what gates new exposure.
+        [raw, at] = (await client.readContract({
+          address: asset.adapter,
+          abi: oracleAbi,
+          functionName: "livePrice",
+          args: [asset.assetId],
+          blockNumber: block.number,
+        })) as [bigint, bigint];
+        valid = raw > 0n && at > 0n && at <= block.timestamp;
+      } catch {
+        // Keep contract custody and fixed expiry claims readable during an oracle outage.
+      }
+      const age = timestamp - Number(at);
+      const display = displayPrices.get(asset.key);
+      const shown =
+        display && display.publishedAt > Number(at) ? display : null;
+      quotes.set(asset.key, {
+        spot: shown?.price ?? Number(raw) / 1e8,
+        published: Number(at),
+        shownAt: shown?.publishedAt ?? Number(at),
+        valid,
+        // A reference recorded outside the session never opens the market.
+        live:
+          valid &&
+          age <= Math.min(maxPriceAge, asset.maxLiveAge) &&
+          assetSessionOpen(asset, timestamp),
+      });
+    }),
+  );
   const primary = assets.find((a) => a.key === "MON") ?? assets[0];
   const primaryQuote = quotes.get(primary.key)!;
   oracleValid = primaryQuote.valid;
@@ -1363,8 +1395,8 @@ export function current() {
     },
   };
 }
-const READ_BATCH = 4;
-/** Bounds concurrent reads: a fork fetches each cold storage slot remotely. */
+const READ_BATCH = manifest.chainId === 10143 ? 32 : 4;
+/** Public multicalls batch the shelf; forks bound remote cold-storage fetches. */
 async function inBatches<T, R>(
   items: T[],
   fn: (item: T) => Promise<R>,

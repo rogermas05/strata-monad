@@ -4,9 +4,11 @@ import { writeDeploymentJson } from "./deployment-executor.ts";
 
 const directory = process.argv[2] ?? ".runtime/testnet/expansion";
 if (
-  ![".runtime/testnet/expansion", ".runtime/testnet/asset-expansion"].includes(
-    directory,
-  )
+  ![
+    ".runtime/testnet/expansion",
+    ".runtime/testnet/asset-expansion",
+    ".runtime/testnet/judging-window",
+  ].includes(directory)
 )
   throw new Error("Unknown source verification package");
 const plan = JSON.parse(readFileSync(`${directory}/plan.json`, "utf8"));

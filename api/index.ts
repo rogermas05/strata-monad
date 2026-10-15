@@ -9,6 +9,9 @@ import {
   requestTradingWake,
 } from "../apps/api/src/cloud-store.ts";
 import { redactDiagnostic } from "../packages/core/src/deployment-config.ts";
+import { maintainIdleDemo } from "../apps/api/src/idle-maintenance.ts";
+import { reuseIdlePass } from "../apps/api/src/cloud-retention.ts";
+import { nextMakerMarket } from "../apps/api/src/maker-rotation.ts";
 
 process.env.STRATA_SERVERLESS = "1";
 /** On-chain trading stays awake this long after the last wake request. */
@@ -17,6 +20,7 @@ const AWAKE_MS = 10 * 60 * 1000;
 const WAKE_DEBOUNCE_MS = 60 * 1000;
 /** Below this keeper balance the worker cannot relay prices, so it stays asleep. */
 const KEEPER_MIN_WEI = 50_000_000_000_000_000n;
+const IDLE_MAINTENANCE_MS = 30_000;
 type Wake = { at: number };
 const awakeUntil = (wake: Wake | undefined) => (wake ? wake.at + AWAKE_MS : 0);
 process.env.STRATA_RUNTIME_DIRECTORY = `/tmp/strata-${process.pid}`;
@@ -45,6 +49,20 @@ function authorized(request: any) {
     timingSafeEqual(Buffer.from(actual), Buffer.from(expected))
   );
 }
+function servedReadiness(saved: any) {
+  const age = Date.now() - saved.lastSuccessfulRefreshAt;
+  return {
+    ...saved,
+    evaluatedAt: Date.now(),
+    ...(age >= 0 && age <= 15_000
+      ? {}
+      : {
+          status: "degraded",
+          newExposureAllowed: false,
+          reason: "The confirmed worker view is stale. New exposure is paused.",
+        }),
+  };
+}
 export default async function handler(request: any, response: any) {
   const url = new URL(request.url, "https://strata.invalid");
   const route = url.searchParams.get("route");
@@ -55,24 +73,32 @@ export default async function handler(request: any, response: any) {
       .status(403)
       .json({ error: "Worker authorization required" });
   try {
+    if (path === "/api/health") {
+      const [view, worker] = await Promise.all([
+        loadCloudState<any>("public-health"),
+        loadCloudState<any>("worker-health"),
+      ]);
+      const health = view?.service ? view : worker;
+      if (health?.service && health.chainId) {
+        const service = servedReadiness(health.service);
+        return response.status(service.status === "ready" ? 200 : 503).json({
+          ok: service.status === "ready",
+          service,
+          chainId: health.chainId,
+          mode: "testnet",
+          serverSigningEnabled: false,
+          publicWorkersEnabled: process.env.STRATA_PUBLIC_WORKERS === "1",
+          worker,
+          workersSuspended: false,
+          localCheckpoint: null,
+        });
+      }
+    }
     if (path === "/api/snapshot" || path === "/api/health") {
       const saved = await loadCloudState<any>("public-snapshot");
       if (saved) {
-        const age = Date.now() - saved.service.lastSuccessfulRefreshAt;
-        const fresh = age >= 0 && age <= 15000;
         const worker = await loadCloudState<any>("worker-health");
-        const service = {
-          ...saved.service,
-          evaluatedAt: Date.now(),
-          ...(fresh
-            ? {}
-            : {
-                status: "degraded",
-                newExposureAllowed: false,
-                reason:
-                  "The confirmed worker view is stale. New exposure is paused.",
-              }),
-        };
+        const service = servedReadiness(saved.service);
         if (path === "/api/health") {
           return response.status(service.status === "ready" ? 200 : 503).json({
             ok: service.status === "ready",
@@ -122,6 +148,12 @@ export default async function handler(request: any, response: any) {
       if (!(await claimWorker(randomUUID())))
         return response.status(202).json({ status: "already-running" });
       try {
+        const wake = await loadCloudState<Wake>("trading-wake");
+        const previous = await loadCloudState<any>("worker-health");
+        if (reuseIdlePass(Date.now(), awakeUntil(wake), previous))
+          return response
+            .status(200)
+            .json({ status: "complete", mode: "cached-display" });
         await initialize();
         const runtime = await import("../apps/api/src/runtime.ts");
         if (!runtime.publicWorkers)
@@ -132,23 +164,54 @@ export default async function handler(request: any, response: any) {
         // Elapsed-time markers in the function log locate a pass that stalls.
         const step = (name: string) =>
           console.log(`worker ${name} +${Date.now() - started}ms`);
-        const wake = await loadCloudState<Wake>("trading-wake");
         const keeperBalance = await runtime.client.getBalance({
           address: runtime.manifest.deployer,
         });
         const gasLow = keeperBalance < KEEPER_MIN_WEI;
         if (gasLow || Date.now() >= awakeUntil(wake)) {
           // Display pass: real off-chain Pyth prices for charts and marks,
-          // chain reads for books and balances, and no signed transactions.
+          // chain reads for books and balances. Expiry/vault maintenance stays
+          // active without paying to relay prices or replenish trading quotes.
           await runtime.serialized(async () => {
             await runtime.reloadCloudReadModel();
             const { refreshDisplayPrices } =
               await import("../apps/api/src/pyth-keeper.ts");
             await refreshDisplayPrices();
-            await runtime.refresh();
+            const snapshot = await runtime.refresh();
+            await runtime.persistCloudReadModel();
+            const lastMaintenance =
+              (await loadCloudState<number>("idle-maintenance-at")) ?? 0;
+            if (
+              !gasLow &&
+              Date.now() - lastMaintenance >= IDLE_MAINTENANCE_MS
+            ) {
+              try {
+                await maintainIdleDemo(snapshot, {
+                  settle: async () => {
+                    const { runSettlementPass } =
+                      await import("../apps/api/src/pyth-keeper.ts");
+                    await runSettlementPass();
+                  },
+                  refresh: runtime.refresh,
+                  house: async (options) => {
+                    const { runHouseCycle } =
+                      await import("../apps/api/src/house-worker.ts");
+                    await runHouseCycle(options);
+                  },
+                });
+              } catch (error) {
+                runtime.recordWorkerError(
+                  `Idle maintenance: ${error instanceof Error ? error.message : String(error)}`,
+                );
+              }
+              await saveCloudState("idle-maintenance-at", Date.now());
+              await runtime.refresh();
+            }
             await runtime.persistCloudReadModel();
             await saveCloudState("worker-health", {
               status: "ready",
+              service: runtime.current()?.service,
+              chainId: runtime.manifest.chainId,
               mode: "display",
               gasLow,
               lastSuccess: Date.now(),
@@ -169,11 +232,8 @@ export default async function handler(request: any, response: any) {
           const { runMakerCycle } =
             await import("../apps/api/src/maker-worker.ts");
           const cursor = (await loadCloudState<number>("maker-cursor")) ?? 0;
-          const active = snap.markets.filter((m) => m.active && m.healthy);
-          const chosen = active.length
-            ? [active[cursor % active.length].id]
-            : [];
-          await runMakerCycle({ marketIds: chosen });
+          const chosen = nextMakerMarket(snap, cursor);
+          await runMakerCycle({ marketIds: chosen ? [chosen.id] : [] });
           await saveCloudState("maker-cursor", cursor + 1);
           step("maker");
           if (runtime.manifest.house) {
@@ -229,6 +289,8 @@ export default async function handler(request: any, response: any) {
           step("persisted");
           await saveCloudState("worker-health", {
             status: "ready",
+            service: runtime.current()?.service,
+            chainId: runtime.manifest.chainId,
             mode: "trading",
             gasLow: false,
             lastSuccess: Date.now(),
@@ -257,7 +319,6 @@ export default async function handler(request: any, response: any) {
     if (path === "/api/live")
       return response.status(404).json({ error: "Use HTTP polling" });
     const { app } = await initialize();
-    const runtime = await import("../apps/api/src/runtime.ts");
     await app.ready();
     let payload: Buffer | undefined;
     if (request.body !== undefined)
@@ -286,16 +347,16 @@ export default async function handler(request: any, response: any) {
       path + (route ? "" : url.search),
       payload,
     );
-    await runtime.serialized(
-      () =>
-        new Promise<void>((resolve, reject) => {
-          response.once("finish", resolve);
-          response.once("close", resolve);
-          response.once("error", reject);
-          incoming.once("error", reject);
-          app.server.emit("request", incoming, response);
-        }),
-    );
+    // Public routes reject customer/server signing. Their reads and receipt
+    // checks must not wait behind a full keeper/maker pass. Snapshot builds
+    // already coalesce, and SQLite writes complete without yielding.
+    await new Promise<void>((resolve, reject) => {
+      response.once("finish", resolve);
+      response.once("close", resolve);
+      response.once("error", reject);
+      incoming.once("error", reject);
+      app.server.emit("request", incoming, response);
+    });
   } catch (error) {
     console.error(
       redactDiagnostic(

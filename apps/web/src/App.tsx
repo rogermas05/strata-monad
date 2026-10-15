@@ -159,7 +159,11 @@ export function App() {
   } = useQuery({
     queryKey: ["snapshot"],
     queryFn: api.snapshot,
-    refetchInterval: 3000,
+    refetchInterval: (query) =>
+      query.state.data?.trading?.mode === "display" &&
+      query.state.data.trading.awakeUntil <= Date.now()
+        ? 10_000
+        : 3_000,
   });
   const [now, setNow] = useState(Date.now());
   useEffect(() => {

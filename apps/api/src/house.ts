@@ -137,13 +137,22 @@ export async function houseState(
   const ids = series.map(Number);
   let marked = usd(idleAssets) + usd(venueCash);
   let maxLoss = 0;
-  for (const market of snapshot.markets.filter((m) => ids.includes(m.id))) {
-    const position = await readMakerInventory(
-      market,
-      market.orders,
-      blockNumber,
-      house.vault,
-    );
+  // Every custody read uses the same confirmed block. Fetch together so a
+  // larger weekly shelf doesn't make each worker refresh exceed its deadline.
+  const positions = await Promise.all(
+    snapshot.markets
+      .filter((m) => ids.includes(m.id))
+      .map(async (market) => ({
+        market,
+        position: await readMakerInventory(
+          market,
+          market.orders,
+          blockNumber,
+          house.vault,
+        ),
+      })),
+  );
+  for (const { market, position } of positions) {
     const held = Number(position.heldClaims) / 1e18;
     const written = Number(position.writtenClaims) / 1e18;
     const bidReserve = market.orders
