@@ -200,3 +200,24 @@ have completion records and must not be repeated. Public request async contexts
 cannot acquire, renew, release or borrow a worker lease, even when served in the
 same process.166 tests and TypeScript passed. Final schedule/readiness evidence
 is retained in `.runtime/testnet/judging-window/final-readiness.json` once checked.
+
+
+## Final completion (15 October01:39 UTC)
+
+All24 open fresh books are funded; four QQQ/TSLA books are session-closed.
+At block71122845, exact integer reads confirmed backing for every unexpired
+series and aggregate engine custody. Public portfolio/receipt and ready health
+checks passed without worker errors. Evidence:
+`.runtime/testnet/judging-window/final-readiness.json`.
+
+The five-second scheduler is restored and autonomous display passes are
+confirmed. `set-worker-schedule.ts` now uses the TLS-verified us-west-1 session
+pooler because OS resolution of the IPv6-only direct hostname intermittently
+failed. Trading wake was reset to sleep deliberately. Judges click Enable trading;
+customer wallets need Monad testnet MON and the in-app dUSDC faucet.
+
+Post-sleep balances were1.923440298 MON keeper and2.024557592 maker. The next
+20-MON faucet allowance should replenish16/4, increasing the operating reserve
+for judging traffic. Do not claim a guarantee for14 days of unlimited live relays.
+Source changes are committed/pushed; original local demo price work and the
+CLI-installed Neon skill files are preserved outside these deployment commits.

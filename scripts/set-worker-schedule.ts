@@ -6,8 +6,9 @@ loadCloudEnvironment();
 const mode = process.argv[2];
 if (mode !== "on" && mode !== "off") throw new Error("Use on|off");
 const client = new pg.Client({
-  host: "db.ygdhgcbnsekoabmkrxzf.supabase.co",
-  user: "postgres",
+  host: "aws-0-us-west-1.pooler.supabase.com",
+  port: 5432,
+  user: "postgres.ygdhgcbnsekoabmkrxzf",
   database: "postgres",
   password: process.env.STRATA_DATABASE_PASSWORD,
   ssl: {

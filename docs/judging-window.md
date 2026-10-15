@@ -1,5 +1,28 @@
 # Two-week judging window
 
+Current status,15 October UTC: the live site uses Neon Free for state. All28 new
+October30 contracts are deployed and verified; all24 currently open fresh books
+have funded bids and asks. Four new QQQ/TSLA books are session-closed and receive
+missing-depth priority when open. The five-second scheduler is active. Trading
+has been returned to display mode to preserve gas; visitors click **Enable
+trading** to wake the live relays and maker.
+
+Final read-only checks passed at block71122845: all unexpired series were fully
+backed, aggregate custody covered escrow, maker risk bounds were respected,
+public portfolio claims matched the0.1-contract verification, receipt history
+included its canonical transaction, and health was HTTP200 without worker errors.
+Autonomous display maintenance was subsequently confirmed without errors.
+
+After returning to sleep, native balances were approximately1.9234 MON keeper and
+2.0246 MON maker. These are operating reserves, not a fourteen-day guarantee under
+arbitrary traffic. At the next faucet reset, add16 MON to the keeper and four to
+the maker for more judging reserve. Do not repeat contract deployment, wrapping,
+the2.5-MON gas rebalance, or the completed verification purchase.
+
+The chronological preparation and migration notes follow; their older blocking
+conditions have been resolved by the Neon migration and completed renewal.
+
+
 Prepared on 13 October 2026 (America/Los_Angeles), through 27 October local time.
 
 The live demo is https://strata-xyz.vercel.app. Browsing uses real offchain Pyth
@@ -225,3 +248,18 @@ books remain session-closed.166 tests pass, including explicit isolation of publ
 read requests from a live worker lease. Fast public reads cannot borrow or renew
 the worker's lease. Final custody, canonical-block, portfolio, receipt and health
 checks are performed against the live deployment before resuming judging.
+
+
+## Final operating confirmation
+
+The final report is `.runtime/testnet/judging-window/final-readiness.json`.
+Contract custody was checked with exact integer reads at one canonical block.
+The four session-closed new market IDs are66–69. The public receipt and portfolio
+checks passed for the actual project verification trade. Original claim routes
+and all73 retained series remain available.
+
+Scheduler control now uses the verified TLS session pooler in us-west-1; the
+OS resolver intermittently failed on Supabase's IPv6-only direct hostname.
+The restored job was confirmed active every five seconds, and autonomous worker
+success advanced to display mode with no errors. The idle snapshot HTTP route
+continues returning200; trading readiness retains its strict freshness gate.
